@@ -233,11 +233,45 @@ Require `GLOSSALEARN_SUPERUSER=1` environment variable.
 | `MergeFamilyModal` | Search and merge families with similar roots |
 | `RenameFamilyModal` | Edit family root stem and label |
 
+## Data Sources & Derivational Families
+
+### Corpus & Lemmatization
+
+The database is built from XML-lemmatized Ancient Greek texts sourced from the [Perseus Digital Library](http://www.perseus.tufts.edu/) and the Thesaurus Linguae Graecae (TLG). Lexicon definitions come from the LSJ (Liddell-Scott-Jones) and Middle Liddell dictionaries via [PerseusDL/lexica](https://github.com/PerseusDL/lexica).
+
+### Derivational Families
+
+Derivational families group Greek words that share a common root (e.g. βάλλω, διαβάλλω, διάβολος, καταβολή). Families are built in two stages:
+
+1. **Approximate stemming** (`build_database.py`): An initial pass groups lemmas by shared character stems after stripping known Greek prefixes (ἀνα-, δια-, ἐκ-, κατα-, etc.) and common suffixes (-ος, -ία, -ίζω, etc.). This provides broad coverage but produces some inaccurate groupings.
+
+2. **Morpheus enrichment** (`improve_families.py`): A second pass uses stem data from the [Perseus Morpheus morphological parser](https://github.com/PerseusDL/morpheus) to improve and correct the families. Specifically, the script parses:
+   - **Compound verb decompositions** (`stemsrc/vbs.cmp.lsj`, `stemsrc/vbs.cmp.ml`) — these files map compound Greek verbs to their constituent prefix + base verb (e.g. ἀφησυχάζω = ἀπό + ἡσυχάζω), providing linguistically accurate parent-child derivation chains.
+   - **Simple verb stems** (`stemsrc/vbs.simp.ml`) — these provide canonical stem forms for grouping verbs that share a root.
+   - **Nominal stem files** (`stemsrc/nom01`–`nom07`, `nom.irreg`) — these contain noun and adjective stems with prefix decomposition (e.g. ἄβατος = ἀ-privative + βατ-), enabling accurate prefix-based derivational linking.
+
+   The Morpheus data is converted from Perseus Beta Code to Unicode, matched against the lemma table, and used to: create new families from shared stems, set hierarchical parent-child links within families, and merge families that Morpheus reveals share the same root. Existing manually curated families are preserved and enriched, not overwritten.
+
+### Attribution & License
+
+The Morpheus stem data is from the [Perseus Digital Library](http://www.perseus.tufts.edu/) at Tufts University:
+
+> Gregory Crane, ed. *Morpheus: Greek and Latin Morphological Analysis*. Perseus Digital Library Project, Tufts University. [github.com/PerseusDL/morpheus](https://github.com/PerseusDL/morpheus)
+
+The Morpheus data is licensed under a [Creative Commons Attribution-ShareAlike 3.0 United States License](https://creativecommons.org/licenses/by-sa/3.0/us/) (CC BY-SA 3.0 US). Copyright is held by the Trustees of Tufts University. In accordance with the license terms:
+
+- This project provides **attribution** to Perseus Digital Library and its contributors.
+- Any **modifications or derived data** produced by this project (the derivational family groupings built from Morpheus stems) are shared under the same CC BY-SA 3.0 US license.
+- The Morpheus stem files are downloaded at build time and cached locally; they are not redistributed in this repository.
+
+Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](https://github.com/PerseusDL/lexica) under the same CC BY-SA 3.0 US license.
+
 ## Build Scripts
 
 | Script | Description |
 |--------|-------------|
 | `build_database.py` | Constructs the database from source corpus data |
+| `improve_families.py` | Enriches derivational families using Morpheus stem data |
 | `download_greek_data.sh` | Downloads source Greek text data |
 | `fix_lexica.py` | Repairs lexicon definition data |
 | `fix_tlg_titles.py` | Corrects TLG author/title metadata |
