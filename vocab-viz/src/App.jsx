@@ -346,7 +346,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     const focusDescendants = focusId ? getDescendants(focusId) : new Set();
 
     // ── Ring 1: direct children of root ──
-    const ring1Radius = Math.max(ring1.length * (nW * 0.4 + gap) / (2 * Math.PI), 100);
+    const ring1Radius = Math.max(ring1.length * (nW * 0.3 + gap) / (2 * Math.PI), 170);
 
     // Assign angles to ring-1 nodes
     const ring1Angles = new Map();
@@ -593,9 +593,8 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
 /* ═══════════════════════════════════════════════════
    FORMS / DETAIL PANEL
    ═══════════════════════════════════════════════════ */
-function FormsPanel({ lemmaId, workId }) {
-  const [formsScope, setFormsScope] = useState("work"); // "work" or "all"
-  const activeWorkId = formsScope === "work" && workId ? workId : null;
+function FormsPanel({ lemmaId, workId, scope }) {
+  const activeWorkId = scope === "work" && workId ? workId : null;
   const url = lemmaId
     ? `${API}/lemma/${lemmaId}${activeWorkId ? `?work_id=${activeWorkId}` : ""}`
     : null;
@@ -666,20 +665,6 @@ function FormsPanel({ lemmaId, workId }) {
       <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
         {tab === "forms" && (
           <div>
-            {/* Scope toggle */}
-            {workId && (
-              <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8,
-                borderRadius: 4, overflow: "hidden", border: `1px solid ${T.borderL}` }}>
-                {[{ key: "work", label: "This Work" }, { key: "all", label: "All Works" }].map(opt => (
-                  <button key={opt.key} onClick={() => setFormsScope(opt.key)} style={{
-                    flex: 1, padding: "4px 0", background: formsScope === opt.key ? T.gold : T.bg,
-                    color: formsScope === opt.key ? T.bg : T.dim, border: "none",
-                    fontSize: 9, fontWeight: 600, cursor: "pointer", letterSpacing: .5,
-                    fontFamily: T.font,
-                  }}>{opt.label}</button>
-                ))}
-              </div>
-            )}
             {groupedForms.map(([group, forms], gi) => (
               <div key={gi} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 9, color: T.goldDim, letterSpacing: 1, marginBottom: 3,
@@ -1229,6 +1214,7 @@ export default function App() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
+  const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
 
@@ -1299,8 +1285,18 @@ export default function App() {
   const superuser = !!statusData?.superuser;
 
   const { data: lemmaDetail } = useApi(selectedWord ? `${API}/lemma/${selectedWord.id}?v=${familyVersion}` : null);
-  const family = lemmaDetail?.family || null;
+  const familyAll = lemmaDetail?.family || null;
   const bumpFamily = useCallback(() => setFamilyVersion(v => v + 1), []);
+
+  const vocabIds = useMemo(() => new Set(vocab.map(w => w.id)), [vocab]);
+  const hasWorkFilter = selectedAuthors.size > 0 || selectedWorks.size > 0;
+  const family = useMemo(() => {
+    if (!familyAll) return null;
+    if (familyScope !== "work" || !hasWorkFilter) return familyAll;
+    const filtered = familyAll.members.filter(m => vocabIds.has(m.id));
+    if (filtered.length === 0) return familyAll; // fallback if no members match
+    return { ...familyAll, members: filtered };
+  }, [familyAll, familyScope, hasWorkFilter, vocabIds]);
 
   const togglePos = useCallback(pos => {
     setPosFilter(prev => { const n = new Set(prev); n.has(pos) ? n.delete(pos) : n.add(pos); return n; });
@@ -1407,6 +1403,25 @@ export default function App() {
               <span style={{ fontSize: 9, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
             </div>
           )}
+          {hasWorkFilter && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
+              borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
+              <span style={{ fontSize: 9, color: T.dim }}>Scope:</span>
+              {["all", "work"].map(s => (
+                <button key={s} onClick={() => setFamilyScope(s)} style={{
+                  background: familyScope === s ? T.bright : "transparent",
+                  color: familyScope === s ? T.bg : T.dim,
+                  border: `1px solid ${familyScope === s ? T.bright : T.borderL}`,
+                  borderRadius: 3, padding: "1px 8px", fontSize: 9, fontWeight: 600, cursor: "pointer",
+                }}>{s === "all" ? "All Works" : "This Work"}</button>
+              ))}
+              {familyScope === "work" && family && (
+                <span style={{ fontSize: 9, color: T.dim, fontStyle: "italic" }}>
+                  ({family.members.length} of {familyAll?.members?.length || 0} members)
+                </span>
+              )}
+            </div>
+          )}
           <div style={{ flex: 1, position: "relative" }}>
             <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
               onSelectMember={m => setDetailWord(m)}
@@ -1418,7 +1433,7 @@ export default function App() {
         {/* RIGHT: Details */}
         <CollapsiblePanel side="right" label="DETAILS"
           expandedWidth={300} pinned={rightPinned} onTogglePin={() => setRightPinned(p => !p)}>
-          <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} />
+          <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} scope={familyScope} />
         </CollapsiblePanel>
       </div>
 
