@@ -1,0 +1,9 @@
+greek_vocab.db
+glossalearn.db
+__pycache__
+node_modules
+vocab-viz
+morpheus_cache
+*.pyc
+.git
+.DS_Store

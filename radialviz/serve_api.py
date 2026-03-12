@@ -39,11 +39,10 @@ except ImportError:
     print("  pip3 install flask flask-cors")
     sys.exit(1)
 
-DB_PATH = Path("./greek_vocab.db")
+DB_PATH = Path(os.environ.get("DB_PATH", "./greek_vocab.db"))
 
 if not DB_PATH.exists():
-    print(f"ERROR: {DB_PATH} not found. Run build_database.py first.")
-    sys.exit(1)
+    print(f"WARNING: {DB_PATH} not found. API will return 503 until database is available.")
 
 app = Flask(__name__)
 CORS(app)  # Allow cross-origin requests from the frontend
@@ -68,6 +67,9 @@ def require_superuser(f):
 
 def get_db():
     """Get a read-only database connection for the current request."""
+    if not DB_PATH.exists():
+        from flask import abort
+        abort(503, description="Database not available. Upload greek_vocab.db to the server.")
     if "db" not in g:
         g.db = sqlite3.connect(str(DB_PATH))
         g.db.row_factory = sqlite3.Row  # return dicts instead of tuples
