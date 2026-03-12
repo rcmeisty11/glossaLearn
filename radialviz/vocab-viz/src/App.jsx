@@ -388,7 +388,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     // ── Determine node visual size ──
     // "scale" per node: 1.0 = full, smaller = collapsed
     const getNodeScale = (m) => {
-      if (m.id === root.id) return focusId ? 0.6 : 1.0;
+      if (m.id === root.id) return focusId ? 0.3 : 1.0;
       if (ring1Ids.has(m.id)) {
         if (!focusId) return 1.0;
         return m.id === focusId ? 1.15 : 0.55;
