@@ -13,6 +13,8 @@ const T = {
   rose:"#b4697a", cyan:"#5aafb4",
   font:"'EB Garamond',Georgia,serif",
   mono:"'JetBrains Mono',monospace",
+  // Font size scale — bump everything up for readability
+  xs: 11, sm: 12, md: 14, lg: 16, xl: 24,
 };
 const POS_CLR = {
   noun:T.gold, verb:T.blue, adjective:T.green, adverb:T.purple,
@@ -65,7 +67,7 @@ function CollapsiblePanel({ side, label, expandedWidth, children, pinned, onTogg
         }}>
           <span style={{
             writingMode: "vertical-rl", textOrientation: "mixed",
-            fontSize: 11, color: T.goldDim, letterSpacing: 2, fontFamily: T.font,
+            fontSize: 13, color: T.goldDim, letterSpacing: 2, fontFamily: T.font,
             transform: side === "left" ? "rotate(180deg)" : "none",
           }}>{label}</span>
         </div>
@@ -81,7 +83,7 @@ function CollapsiblePanel({ side, label, expandedWidth, children, pinned, onTogg
           display: "flex", alignItems: "center", justifyContent: "space-between",
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 11, color: T.goldDim, letterSpacing: 1, textTransform: "uppercase" }}>
+          <span style={{ fontSize: 13, color: T.goldDim, letterSpacing: 1, textTransform: "uppercase" }}>
             {label}</span>
           <button onClick={onTogglePin} title={pinned ? "Unpin" : "Pin open"} style={{
             background: "none", border: "none", cursor: "pointer",
@@ -116,7 +118,7 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Filter..."
           style={{ width: "100%", background: T.surface, border: `1px solid ${T.borderL}`,
-            borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 12,
+            borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
             fontFamily: T.font, outline: "none" }} />
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
@@ -126,12 +128,12 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
           const exp = expanded.has(a.author);
           return (
             <div key={a.author}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", fontSize: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", fontSize: 14 }}>
                 <span onClick={() => {
                   const n = new Set(expanded);
                   n.has(a.author) ? n.delete(a.author) : n.add(a.author);
                   setExpanded(n);
-                }} style={{ color: T.dim, fontSize: 9, width: 12, textAlign: "center", cursor: "pointer", flexShrink: 0 }}>
+                }} style={{ color: T.dim, fontSize: 11, width: 14, textAlign: "center", cursor: "pointer", flexShrink: 0 }}>
                   {exp ? "▾" : "▸"}</span>
                 <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", flex: 1, minWidth: 0 }}>
                   <input type="checkbox" checked={sel} onChange={() => onToggleAuthor(a.author)}
@@ -139,13 +141,13 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
                   <span style={{ color: sel ? T.gold : T.text, fontWeight: sel ? 600 : 400,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.author}</span>
                 </label>
-                <span style={{ color: T.dim, fontSize: 10, fontFamily: T.mono, flexShrink: 0 }}>{a.work_count}</span>
+                <span style={{ color: T.dim, fontSize: 12, fontFamily: T.mono, flexShrink: 0 }}>{a.work_count}</span>
               </div>
               {exp && authorWorks.map(w => {
                 const ws = selectedWorks.has(w.id);
                 return (
                   <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 5,
-                    padding: "2px 8px 2px 32px", cursor: "pointer", fontSize: 11 }}>
+                    padding: "2px 8px 2px 32px", cursor: "pointer", fontSize: 13 }}>
                     <input type="checkbox" checked={ws || sel} disabled={sel}
                       onChange={() => onToggleWork(w.id)} style={{ accentColor: T.gold, flexShrink: 0 }} />
                     <span style={{ color: (ws || sel) ? T.bright : T.dim,
@@ -174,11 +176,11 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
         <input value={searchQ} onChange={e => onSearchChange(e.target.value)}
           placeholder="Search..."
           style={{ flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
-            borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 12,
+            borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
             fontFamily: T.font, outline: "none" }} />
         <select value={sort} onChange={e => onSortChange(e.target.value)}
           style={{ background: T.surface, border: `1px solid ${T.borderL}`,
-            borderRadius: 4, padding: "4px", color: T.text, fontSize: 10,
+            borderRadius: 4, padding: "4px", color: T.text, fontSize: 12,
             fontFamily: T.font, cursor: "pointer" }}>
           <option value="frequency">Freq</option>
           <option value="alpha">A-Z</option>
@@ -193,7 +195,7 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
           return (
             <button key={pos} onClick={() => onPosFilterChange(pos)}
               style={{
-                padding: "1px 6px", borderRadius: 3, fontSize: 8, fontWeight: 600,
+                padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
                 letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
                 background: active ? clr : "transparent",
                 color: active ? T.bg : clr,
@@ -204,14 +206,14 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
         })}
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {loading && <div style={{ padding: 12, color: T.dim, fontSize: 12, textAlign: "center" }}>Loading...</div>}
+        {loading && <div style={{ padding: 12, color: T.dim, fontSize: 14, textAlign: "center" }}>Loading...</div>}
         {vocab.map(w => (
           <div key={w.id} onClick={() => onSelect(w)}
             onMouseEnter={e => { if (selectedId !== w.id) e.currentTarget.style.background = T.hover; }}
             onMouseLeave={e => { if (selectedId !== w.id) e.currentTarget.style.background = "transparent"; }}
             style={{
               display: "flex", alignItems: "baseline", gap: 5,
-              padding: "4px 10px", cursor: "pointer", fontSize: 13,
+              padding: "5px 10px", cursor: "pointer", fontSize: 15,
               background: selectedId === w.id ? T.goldGlow : "transparent",
               borderLeft: selectedId === w.id ? `3px solid ${T.gold}` : "3px solid transparent",
             }}>
@@ -220,17 +222,17 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
               fontWeight: selectedId === w.id ? 700 : 400,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
             }}>{w.lemma}</span>
-            <span style={{ fontSize: 9, color: POS_CLR[w.pos] || T.dim, flexShrink: 0 }}>{w.pos}</span>
-            <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: POS_CLR[w.pos] || T.dim, flexShrink: 0 }}>{w.pos}</span>
+            <span style={{ fontSize: 12, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>
               {w.work_freq || w.total_occurrences}</span>
           </div>
         ))}
         {!loading && vocab.length === 0 && (
-          <div style={{ padding: 16, textAlign: "center", color: T.dim, fontSize: 12, fontStyle: "italic" }}>
+          <div style={{ padding: 16, textAlign: "center", color: T.dim, fontSize: 14, fontStyle: "italic" }}>
             Select works to see vocabulary</div>
         )}
       </div>
-      <div style={{ padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, color: T.dim, flexShrink: 0 }}>
+      <div style={{ padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.dim, flexShrink: 0 }}>
         {vocab.length} words</div>
     </div>
   );
@@ -296,7 +298,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     const root = members[rootIdx];
     const others = members.filter((_, i) => i !== rootIdx);
 
-    const nW = 130, nH = 52; // node dimensions
+    const nW = 145, nH = 58; // node dimensions
     const gap = 150;
 
     // ── Build parent/child maps ──
@@ -411,8 +413,8 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       const isSel = m.id === selectedWord?.id;
       const isDetail = m.id === detailWord?.id;
 
-      const baseW = isRoot ? 140 : nW;
-      const baseH = isRoot ? 56 : nH;
+      const baseW = isRoot ? 155 : nW;
+      const baseH = isRoot ? 62 : nH;
       const w = baseW * scale;
       const h = baseH * scale;
 
@@ -455,11 +457,11 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
 
       if (isRoot) {
         ng.append("text").attr("text-anchor", "middle").attr("y", -h/2 - 4 * scale)
-          .attr("fill", T.goldDim).attr("font-size", `${8 * scale}px`).attr("font-family", T.mono)
+          .attr("fill", T.goldDim).attr("font-size", `${10 * scale}px`).attr("font-family", T.mono)
           .attr("letter-spacing", "1.5px").text("ROOT");
       }
 
-      const fontSize = (isRoot ? 16 : 13) * scale;
+      const fontSize = (isRoot ? 18 : 15) * scale;
       ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? -10 : -12) * scale)
         .attr("fill", isSel ? T.gold : T.bright)
         .attr("font-size", `${fontSize}px`)
@@ -467,7 +469,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         .attr("font-family", T.font).text(m.lemma);
 
       ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 5 : 1) * scale)
-        .attr("fill", clr).attr("font-size", `${9 * scale}px`).attr("font-weight", 600)
+        .attr("fill", clr).attr("font-size", `${11 * scale}px`).attr("font-weight", 600)
         .attr("font-family", T.font).text(m.pos || "");
 
       if (scale >= 0.5) {
@@ -475,7 +477,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         const maxChars = isRoot ? 35 : 25;
         const defText = def.length > maxChars ? def.slice(0, maxChars) + "…" : def;
         ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 18 : 14) * scale)
-          .attr("fill", T.dim).attr("font-size", `${9 * scale}px`).attr("font-style", "italic")
+          .attr("fill", T.dim).attr("font-size", `${11 * scale}px`).attr("font-style", "italic")
           .attr("font-family", T.font).text(defText);
       }
 
@@ -486,7 +488,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
           .attr("r", 7).attr("fill", T.gold).attr("opacity", 0.8);
         ng.append("text").attr("x", w/2 + 2).attr("y", -h/2 + 1)
           .attr("text-anchor", "middle").attr("fill", T.bg)
-          .attr("font-size", "7px").attr("font-weight", 700)
+          .attr("font-size", "9px").attr("font-weight", 700)
           .attr("font-family", T.mono).text(kidCount);
       }
 
@@ -527,7 +529,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         const mx = (parentPos.x + pos.x) * 0.5, my = (parentPos.y + pos.y) * 0.5;
         g.append("text").attr("x", mx).attr("y", my - 4)
           .attr("text-anchor", "middle").attr("fill", T.goldDim)
-          .attr("font-size", "7px").attr("font-family", T.mono)
+          .attr("font-size", "9px").attr("font-family", T.mono)
           .attr("opacity", .7).text(lbl);
       }
     });
@@ -582,7 +584,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
           justifyContent: "center", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
           <div style={{ fontSize: 32, opacity: .1 }}>&#x27E1;</div>
-          <div style={{ color: T.dim, fontSize: 13, fontFamily: T.font }}>
+          <div style={{ color: T.dim, fontSize: 15, fontFamily: T.font }}>
             Select a word to see its derivational family</div>
         </div>
       )}
@@ -615,7 +617,7 @@ function FormsPanel({ lemmaId, workId, scope }) {
 
   if (!lemmaId) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-      height: "100%", color: T.dim, fontSize: 12, fontStyle: "italic", padding: 16, textAlign: "center" }}>
+      height: "100%", color: T.dim, fontSize: 14, fontStyle: "italic", padding: 16, textAlign: "center" }}>
       Click a word to see details</div>
   );
   if (loading) return (
@@ -635,13 +637,13 @@ function FormsPanel({ lemmaId, workId, scope }) {
       {/* Header */}
       <div style={{ padding: "12px 14px 8px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 20, fontWeight: 700, color: T.bright, fontFamily: T.font }}>{data.lemma}</span>
-          <span style={{ fontSize: 11, color: POS_CLR[data.pos] || T.dim, fontWeight: 600 }}>{data.pos}</span>
-          <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>
+          <span style={{ fontSize: 24, fontWeight: 700, color: T.bright, fontFamily: T.font }}>{data.lemma}</span>
+          <span style={{ fontSize: 13, color: POS_CLR[data.pos] || T.dim, fontWeight: 600 }}>{data.pos}</span>
+          <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>
             #{data.frequency_rank} · ×{data.total_occurrences?.toLocaleString()}</span>
         </div>
         {data.short_def && (
-          <div style={{ fontSize: 11, color: T.dim, fontStyle: "italic", marginTop: 2, lineHeight: 1.4 }}>
+          <div style={{ fontSize: 13, color: T.dim, fontStyle: "italic", marginTop: 2, lineHeight: 1.4 }}>
             {data.short_def.slice(0, 100)}</div>
         )}
       </div>
@@ -653,7 +655,7 @@ function FormsPanel({ lemmaId, workId, scope }) {
             flex: 1, padding: "7px 0", background: "none", border: "none",
             borderBottom: tab === t.id ? `2px solid ${T.gold}` : "2px solid transparent",
             color: tab === t.id ? T.gold : T.dim,
-            fontSize: 10, fontFamily: T.font, letterSpacing: .6, cursor: "pointer",
+            fontSize: 12, fontFamily: T.font, letterSpacing: .6, cursor: "pointer",
           }}>
             {t.label.toUpperCase()}
             {t.n > 0 && <span style={{ opacity: .5, marginLeft: 2 }}>({t.n})</span>}
@@ -667,16 +669,16 @@ function FormsPanel({ lemmaId, workId, scope }) {
           <div>
             {groupedForms.map(([group, forms], gi) => (
               <div key={gi} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 9, color: T.goldDim, letterSpacing: 1, marginBottom: 3,
+                <div style={{ fontSize: 11, color: T.goldDim, letterSpacing: 1, marginBottom: 3,
                   textTransform: "uppercase" }}>{group}</div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <tbody>
                     {forms.map((f, fi) => (
                       <tr key={fi} style={{ borderBottom: `1px solid ${T.border}` }}>
-                        <td style={{ padding: "3px 4px", color: T.bright, fontFamily: T.font, fontSize: 12, fontWeight: 500 }}>{f.form}</td>
-                        <td style={{ padding: "3px 4px", color: T.dim, fontSize: 9 }}>
+                        <td style={{ padding: "3px 4px", color: T.bright, fontFamily: T.font, fontSize: 14, fontWeight: 500 }}>{f.form}</td>
+                        <td style={{ padding: "3px 4px", color: T.dim, fontSize: 11 }}>
                           {[f.person, f.number, f.gender, f.gram_case, f.degree].filter(Boolean).join(", ")}</td>
-                        <td style={{ padding: "3px 2px", color: T.dim, fontSize: 8, fontFamily: T.mono, textAlign: "right" }}>{f.morph_tag}</td>
+                        <td style={{ padding: "3px 2px", color: T.dim, fontSize: 11, fontFamily: T.mono, textAlign: "right" }}>{f.morph_tag}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -684,7 +686,7 @@ function FormsPanel({ lemmaId, workId, scope }) {
               </div>
             ))}
             {groupedForms.length === 0 && (
-              <div style={{ color: T.dim, fontSize: 11, fontStyle: "italic" }}>No forms recorded</div>
+              <div style={{ color: T.dim, fontSize: 13, fontStyle: "italic" }}>No forms recorded</div>
             )}
           </div>
         )}
@@ -692,9 +694,9 @@ function FormsPanel({ lemmaId, workId, scope }) {
         {tab === "works" && (data.top_works || []).map((w, i) => (
           <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0",
             borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold, minWidth: 42, textAlign: "right" }}>×{w.count}</span>
-            <span style={{ fontSize: 12, color: T.bright }}>{w.author}</span>
-            <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>{w.title}</span>
+            <span style={{ fontFamily: T.mono, fontSize: 12, color: T.gold, minWidth: 42, textAlign: "right" }}>×{w.count}</span>
+            <span style={{ fontSize: 14, color: T.bright }}>{w.author}</span>
+            <span style={{ fontSize: 13, color: T.dim, fontStyle: "italic" }}>{w.title}</span>
           </div>
         ))}
 
@@ -702,13 +704,13 @@ function FormsPanel({ lemmaId, workId, scope }) {
           <div>
             {data.definitions?.length > 0 ? data.definitions.map((d, i) => (
               <div key={i} style={{ borderBottom: `1px solid ${T.border}`, paddingBottom: 6, marginBottom: 6 }}>
-                <div style={{ fontSize: 9, color: T.goldDim, letterSpacing: 1, marginBottom: 2 }}>{d.source?.toUpperCase()}</div>
-                <div style={{ fontSize: 11, color: T.text, lineHeight: 1.5 }}>{(d.short_def || d.definition || "").slice(0, 400)}</div>
+                <div style={{ fontSize: 11, color: T.goldDim, letterSpacing: 1, marginBottom: 2 }}>{d.source?.toUpperCase()}</div>
+                <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{(d.short_def || d.definition || "").slice(0, 400)}</div>
               </div>
             )) : data.lsj_def ? (
-              <div style={{ fontSize: 11, color: T.text, lineHeight: 1.5 }}>{data.lsj_def.slice(0, 600)}</div>
+              <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5 }}>{data.lsj_def.slice(0, 600)}</div>
             ) : (
-              <div style={{ color: T.dim, fontSize: 11, fontStyle: "italic" }}>No definitions</div>
+              <div style={{ color: T.dim, fontSize: 13, fontStyle: "italic" }}>No definitions</div>
             )}
           </div>
         )}
@@ -793,9 +795,9 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
         {/* Header */}
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
           display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 12, color: T.gold, fontWeight: 600 }}>Add Word to Family</span>
+          <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Add Word to Family</span>
           <button onClick={onClose} style={{ background: "none", border: "none",
-            color: T.dim, cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
         </div>
 
         {/* Search */}
@@ -804,11 +806,11 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
             onKeyDown={e => e.key === "Enter" && doSearch()}
             placeholder="Search lemma or definition..."
             style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
-              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 12,
+              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
               fontFamily: T.font, outline: "none" }} autoFocus />
           <button onClick={doSearch} disabled={searching} style={{
             background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
-            color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}>Search</button>
         </div>
 
@@ -817,25 +819,25 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
           {results.map(r => (
             <div key={r.id} onClick={() => { setSelected(r); setConflict(null); setError(null); }}
               style={{
-                padding: "5px 14px", cursor: "pointer", fontSize: 12,
+                padding: "5px 14px", cursor: "pointer", fontSize: 14,
                 background: selected?.id === r.id ? T.goldGlow : "transparent",
                 borderLeft: selected?.id === r.id ? `3px solid ${T.gold}` : "3px solid transparent",
                 display: "flex", alignItems: "baseline", gap: 6,
               }}>
               <span style={{ color: selected?.id === r.id ? T.gold : T.bright, fontWeight: 500 }}>{r.lemma}</span>
-              <span style={{ fontSize: 9, color: POS_CLR[r.pos] || T.dim }}>{r.pos}</span>
-              <span style={{ fontSize: 10, color: T.dim, fontStyle: "italic", flex: 1,
+              <span style={{ fontSize: 11, color: POS_CLR[r.pos] || T.dim }}>{r.pos}</span>
+              <span style={{ fontSize: 12, color: T.dim, fontStyle: "italic", flex: 1,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_def}</span>
             </div>
           ))}
-          {searching && <div style={{ padding: 12, color: T.dim, fontSize: 11, textAlign: "center" }}>Searching...</div>}
+          {searching && <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center" }}>Searching...</div>}
         </div>
 
         {/* Relation picker + action */}
         {selected && !conflict && (
           <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
             display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 10, color: T.dim }}>
+            <div style={{ fontSize: 12, color: T.dim }}>
               Adding <strong style={{ color: T.bright }}>{selected.lemma}</strong> to <strong style={{ color: T.gold }}>{familyLabel}</strong>
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -845,7 +847,7 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
                   else { setUseCustom(false); setRelation(e.target.value); }
                 }}
                 style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                  padding: "4px 6px", color: T.text, fontSize: 11, fontFamily: T.font, flex: 1 }}>
+                  padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }}>
                 {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                 <option value="__custom__">Custom...</option>
               </select>
@@ -853,16 +855,16 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
                 <input value={customRel} onChange={e => setCustomRel(e.target.value)}
                   placeholder="Custom relation..."
                   style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                    padding: "4px 6px", color: T.text, fontSize: 11, fontFamily: T.font, flex: 1 }} />
+                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }} />
               )}
             </div>
             {/* Parent picker */}
             {familyMembers?.length > 0 && (
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: T.dim, flexShrink: 0 }}>Derives from:</span>
+                <span style={{ fontSize: 12, color: T.dim, flexShrink: 0 }}>Derives from:</span>
                 <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
                   style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                    padding: "4px 6px", color: T.text, fontSize: 11, fontFamily: T.font, flex: 1 }}>
+                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }}>
                   <option value="">Root (direct)</option>
                   {familyMembers.map(m => (
                     <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
@@ -870,10 +872,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
                 </select>
               </div>
             )}
-            {error && <div style={{ fontSize: 10, color: T.red }}>{error}</div>}
+            {error && <div style={{ fontSize: 12, color: T.red }}>{error}</div>}
             <button onClick={doAdd} disabled={saving} style={{
               background: T.gold, border: "none", borderRadius: 4, padding: "6px 0",
-              color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
             }}>{saving ? "Adding..." : "Add to Family"}</button>
           </div>
         )}
@@ -882,19 +884,19 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
         {conflict && (
           <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}`,
             display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 11, color: T.orange }}>
+            <div style={{ fontSize: 13, color: T.orange }}>
               <strong>{selected?.lemma}</strong> already belongs to family: <strong>{conflict.existing_family_label}</strong>
             </div>
-            <div style={{ fontSize: 10, color: T.dim }}>Merge that family into this one?</div>
-            {error && <div style={{ fontSize: 10, color: T.red }}>{error}</div>}
+            <div style={{ fontSize: 12, color: T.dim }}>Merge that family into this one?</div>
+            {error && <div style={{ fontSize: 12, color: T.red }}>{error}</div>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={doMerge} disabled={saving} style={{
                 flex: 1, background: T.gold, border: "none", borderRadius: 4, padding: "6px 0",
-                color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
               }}>{saving ? "Merging..." : "Merge Families"}</button>
               <button onClick={() => setConflict(null)} style={{
                 flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
-                padding: "6px 0", color: T.text, fontSize: 11, cursor: "pointer",
+                padding: "6px 0", color: T.text, fontSize: 13, cursor: "pointer",
               }}>Cancel</button>
             </div>
           </div>
@@ -945,13 +947,13 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
         background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
         padding: 8, minWidth: 200, boxShadow: "0 4px 16px rgba(0,0,0,.4)",
       }}>
-        <div style={{ fontSize: 11, color: T.bright, fontWeight: 600, marginBottom: 6 }}>{member.lemma}</div>
+        <div style={{ fontSize: 13, color: T.bright, fontWeight: 600, marginBottom: 6 }}>{member.lemma}</div>
 
         {!editingRel && !editingParent && !confirmRemove && (
           <>
             <button onClick={() => setEditingRel(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
-              border: "none", padding: "4px 6px", color: T.text, fontSize: 11,
+              border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
               cursor: "pointer", borderRadius: 3,
             }}
               onMouseEnter={e => e.currentTarget.style.background = T.hover}
@@ -960,7 +962,7 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
             </button>
             <button onClick={() => setEditingParent(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
-              border: "none", padding: "4px 6px", color: T.text, fontSize: 11,
+              border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
               cursor: "pointer", borderRadius: 3,
             }}
               onMouseEnter={e => e.currentTarget.style.background = T.hover}
@@ -971,7 +973,7 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
             </button>
             <button onClick={() => setConfirmRemove(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
-              border: "none", padding: "4px 6px", color: T.red, fontSize: 11,
+              border: "none", padding: "4px 6px", color: T.red, fontSize: 13,
               cursor: "pointer", borderRadius: 3,
             }}
               onMouseEnter={e => e.currentTarget.style.background = T.hover}
@@ -985,22 +987,22 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <select value={relation} onChange={e => setRelation(e.target.value)}
               style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 10, fontFamily: T.font }}>
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
               {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             <button onClick={doUpdateRelation} style={{
               background: T.gold, border: "none", borderRadius: 3, padding: "4px 0",
-              color: T.bg, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
             }}>Save</button>
           </div>
         )}
 
         {editingParent && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ fontSize: 10, color: T.dim }}>Derives from:</div>
+            <div style={{ fontSize: 12, color: T.dim }}>Derives from:</div>
             <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
               style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 10, fontFamily: T.font }}>
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
               <option value="">Root (direct)</option>
               {parentOptions.map(m => (
                 <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
@@ -1008,22 +1010,22 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
             </select>
             <button onClick={doUpdateParent} style={{
               background: T.gold, border: "none", borderRadius: 3, padding: "4px 0",
-              color: T.bg, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
             }}>Save</button>
           </div>
         )}
 
         {confirmRemove && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ fontSize: 10, color: T.dim }}>Remove <strong>{member.lemma}</strong>?</div>
+            <div style={{ fontSize: 12, color: T.dim }}>Remove <strong>{member.lemma}</strong>?</div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={doRemove} style={{
                 flex: 1, background: T.red, border: "none", borderRadius: 3, padding: "4px 0",
-                color: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Remove</button>
               <button onClick={() => setConfirmRemove(false)} style={{
                 flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
-                padding: "4px 0", color: T.text, fontSize: 10, cursor: "pointer",
+                padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
               }}>Cancel</button>
             </div>
           </div>
@@ -1078,11 +1080,11 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
       }}>
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
           display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 12, color: T.gold, fontWeight: 600 }}>Merge Another Family</span>
+          <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Merge Another Family</span>
           <button onClick={onClose} style={{ background: "none", border: "none",
-            color: T.dim, cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
         </div>
-        <div style={{ padding: "6px 14px", fontSize: 10, color: T.dim }}>
+        <div style={{ padding: "6px 14px", fontSize: 12, color: T.dim }}>
           Merging into: <strong style={{ color: T.gold }}>{familyLabel}</strong>
         </div>
 
@@ -1091,11 +1093,11 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
             onKeyDown={e => e.key === "Enter" && doSearch()}
             placeholder="Search by root, label, or word..."
             style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
-              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 12,
+              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
               fontFamily: T.font, outline: "none" }} autoFocus />
           <button onClick={doSearch} disabled={searching} style={{
             background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
-            color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}>Search</button>
         </div>
 
@@ -1103,18 +1105,18 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
           {results.map(r => (
             <div key={r.id} onClick={() => { setSelected(r); setError(null); }}
               style={{
-                padding: "6px 14px", cursor: "pointer", fontSize: 12,
+                padding: "6px 14px", cursor: "pointer", fontSize: 14,
                 background: selected?.id === r.id ? T.goldGlow : "transparent",
                 borderLeft: selected?.id === r.id ? `3px solid ${T.gold}` : "3px solid transparent",
                 display: "flex", alignItems: "baseline", gap: 8,
               }}>
               <span style={{ color: selected?.id === r.id ? T.gold : T.bright, fontWeight: 500 }}>{r.label}</span>
-              <span style={{ fontSize: 9, color: T.dim, fontFamily: T.mono }}>{r.member_count} words</span>
+              <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{r.member_count} words</span>
             </div>
           ))}
-          {searching && <div style={{ padding: 12, color: T.dim, fontSize: 11, textAlign: "center" }}>Searching...</div>}
+          {searching && <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center" }}>Searching...</div>}
           {!searching && results.length === 0 && query && (
-            <div style={{ padding: 12, color: T.dim, fontSize: 11, textAlign: "center", fontStyle: "italic" }}>
+            <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center", fontStyle: "italic" }}>
               No matching families found</div>
           )}
         </div>
@@ -1122,13 +1124,13 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
         {selected && (
           <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
             display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 10, color: T.dim }}>
+            <div style={{ fontSize: 12, color: T.dim }}>
               Merge <strong style={{ color: T.bright }}>{selected.label}</strong> ({selected.member_count} words) into <strong style={{ color: T.gold }}>{familyLabel}</strong>?
             </div>
-            {error && <div style={{ fontSize: 10, color: T.red }}>{error}</div>}
+            {error && <div style={{ fontSize: 12, color: T.red }}>{error}</div>}
             <button onClick={doMerge} disabled={merging} style={{
               background: T.gold, border: "none", borderRadius: 4, padding: "6px 0",
-              color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
             }}>{merging ? "Merging..." : "Merge Families"}</button>
           </div>
         )}
@@ -1166,29 +1168,29 @@ function RenameFamilyModal({ familyId, currentRoot, currentLabel, onClose, onDon
         width: 340, boxShadow: "0 8px 32px rgba(0,0,0,.5)",
         display: "flex", flexDirection: "column", gap: 10, padding: 14,
       }}>
-        <div style={{ fontSize: 12, color: T.gold, fontWeight: 600 }}>Rename Family</div>
+        <div style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Rename Family</div>
         <div>
-          <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>ROOT STEM</div>
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>ROOT STEM</div>
           <input value={root} onChange={e => setRoot(e.target.value)}
             style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
-              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 13,
+              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 15,
               fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div>
-          <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>LABEL</div>
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>LABEL</div>
           <input value={label} onChange={e => setLabel(e.target.value)}
             style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
-              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 13,
+              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 15,
               fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={doSave} disabled={saving} style={{
             flex: 1, background: T.gold, border: "none", borderRadius: 4, padding: "6px 0",
-            color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}>{saving ? "Saving..." : "Save"}</button>
           <button onClick={onClose} style={{
             flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
-            padding: "6px 0", color: T.text, fontSize: 11, cursor: "pointer",
+            padding: "6px 0", color: T.text, fontSize: 13, cursor: "pointer",
           }}>Cancel</button>
         </div>
       </div>
@@ -1331,22 +1333,22 @@ export default function App() {
       {/* Header */}
       <header style={{ borderBottom: `1px solid ${T.border}`, padding: "7px 14px",
         display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <span style={{ fontSize: 17, fontWeight: 700, color: T.bright, letterSpacing: 1 }}>ΓΛΩΣΣΑ</span>
-        <span style={{ fontSize: 10, color: T.dim, letterSpacing: 1 }}>Vocabulary Explorer</span>
-        <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
+        <span style={{ fontSize: 20, fontWeight: 700, color: T.bright, letterSpacing: 1 }}>ΓΛΩΣΣΑ</span>
+        <span style={{ fontSize: 13, color: T.dim, letterSpacing: 1 }}>Vocabulary Explorer</span>
+        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
           background: connected ? "rgba(107,156,107,.15)" : "rgba(196,87,74,.15)",
           color: connected ? T.green : T.red,
           border: `1px solid ${connected ? "rgba(107,156,107,.3)" : "rgba(196,87,74,.3)"}`,
         }}>{connected ? "CONNECTED" : "CONNECTING"}</span>
         {superuser && (
-          <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
+          <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
             background: "rgba(212,168,67,.15)", color: T.gold,
             border: `1px solid rgba(212,168,67,.3)`,
           }}>SUPERUSER</span>
         )}
         <div style={{ flex: 1 }} />
         {selectedWord && (
-          <span style={{ fontSize: 11, color: T.dim }}>
+          <span style={{ fontSize: 13, color: T.dim }}>
             Family: <strong style={{ color: T.gold }}>{family?.label || "loading..."}</strong>
           </span>
         )}
@@ -1386,37 +1388,37 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px",
               background: "rgba(212,168,67,0.08)", borderBottom: `1px solid ${T.goldDim}`,
               flexShrink: 0 }}>
-              <span style={{ fontSize: 9, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
+              <span style={{ fontSize: 11, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
                 fontWeight: 700 }}>EDIT MODE</span>
               <button onClick={() => setShowAddModal(true)} style={{
                 background: T.gold, border: "none", borderRadius: 4, padding: "3px 10px",
-                color: T.bg, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>+ Add Word</button>
               <button onClick={() => setShowMergeModal(true)} style={{
                 background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: T.text, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Merge Family</button>
               <button onClick={() => setShowRenameModal(true)} style={{
                 background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: T.text, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Rename Root</button>
-              <span style={{ fontSize: 9, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
+              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
             </div>
           )}
           {hasWorkFilter && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
               borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
-              <span style={{ fontSize: 9, color: T.dim }}>Scope:</span>
+              <span style={{ fontSize: 11, color: T.dim }}>Scope:</span>
               {["all", "work"].map(s => (
                 <button key={s} onClick={() => setFamilyScope(s)} style={{
                   background: familyScope === s ? T.bright : "transparent",
                   color: familyScope === s ? T.bg : T.dim,
                   border: `1px solid ${familyScope === s ? T.bright : T.borderL}`,
-                  borderRadius: 3, padding: "1px 8px", fontSize: 9, fontWeight: 600, cursor: "pointer",
+                  borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
                 }}>{s === "all" ? "All Works" : "This Work"}</button>
               ))}
               {familyScope === "work" && family && (
-                <span style={{ fontSize: 9, color: T.dim, fontStyle: "italic" }}>
+                <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>
                   ({family.members.length} of {familyAll?.members?.length || 0} members)
                 </span>
               )}
