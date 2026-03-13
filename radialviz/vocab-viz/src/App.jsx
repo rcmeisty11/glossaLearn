@@ -1337,7 +1337,7 @@ export default function App() {
           background: connected ? "rgba(107,156,107,.15)" : "rgba(196,87,74,.15)",
           color: connected ? T.green : T.red,
           border: `1px solid ${connected ? "rgba(107,156,107,.3)" : "rgba(196,87,74,.3)"}`,
-        }}>{connected ? "CONNECTED" : "OFFLINE"}</span>
+        }}>{connected ? "CONNECTED" : "CONNECTING"}</span>
         {superuser && (
           <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
             background: "rgba(212,168,67,.15)", color: T.gold,
