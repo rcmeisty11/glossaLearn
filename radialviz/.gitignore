@@ -15,3 +15,5 @@ build/
 
 # Env / secrets
 .env
+radialviz/greek_vocab.db.gz
+radialviz/greek_vocab.db.bak_verbal_adj
