@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
 
 const API = import.meta.env.PROD ? "https://api.glossalearn.com/api" : "http://127.0.0.1:5000/api";
@@ -22,15 +22,64 @@ const POS_CLR = {
   particle:T.cyan, article:T.dim, "":T.dim,
 };
 
-function useApi(url) {
+/* ═══════════════════════════════════════════════════
+   GLOBAL LOADING BAR
+   Thin animated gold bar at top of viewport.
+   ═══════════════════════════════════════════════════ */
+const LoadingContext = createContext({ start: () => {}, stop: () => {} });
+
+function useLoadingTracker() {
+  const countRef = useRef(0);
+  const [visible, setVisible] = useState(false);
+  const timerRef = useRef(null);
+
+  const start = useCallback(() => {
+    countRef.current++;
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setVisible(true);
+  }, []);
+
+  const stop = useCallback(() => {
+    countRef.current = Math.max(0, countRef.current - 1);
+    if (countRef.current === 0) {
+      // Keep bar visible for 300ms minimum to avoid flash
+      timerRef.current = setTimeout(() => { setVisible(false); timerRef.current = null; }, 300);
+    }
+  }, []);
+
+  return { visible, start, stop };
+}
+
+function LoadingBar({ visible }) {
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, height: 3, zIndex: 9999,
+      background: T.border, overflow: "hidden",
+    }}>
+      <div style={{
+        height: "100%", background: `linear-gradient(90deg, transparent, ${T.gold}, transparent)`,
+        width: "40%",
+        animation: "loadbar 1.2s ease-in-out infinite",
+      }} />
+      <style>{`@keyframes loadbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }`}</style>
+    </div>
+  );
+}
+
+function useApi(url, loadingCtx) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!url) { setData(null); return; }
     let c = false;
     setLoading(true);
+    if (loadingCtx) loadingCtx.start();
     fetch(url).then(r => r.json()).then(d => { if (!c) setData(d); })
-      .catch(() => {}).finally(() => { if (!c) setLoading(false); });
+      .catch(() => {}).finally(() => {
+        if (!c) setLoading(false);
+        if (loadingCtx) loadingCtx.stop();
+      });
     return () => { c = true; };
   }, [url]);
   return { data, loading };
@@ -169,7 +218,7 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
    ═══════════════════════════════════════════════════ */
 const POS_LIST = ["noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction", "particle", "article"];
 
-function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, onSearchChange, loading, posFilter, onPosFilterChange }) {
+function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, onSearchChange, loading, posFilter, onPosFilterChange, totalCount, canLoadMore, onLoadMore }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
       <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 4 }}>
@@ -220,7 +269,7 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
             <span style={{ fontFamily: T.font,
               color: selectedId === w.id ? T.gold : T.bright,
               fontWeight: selectedId === w.id ? 700 : 400,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+              flex: 1, minWidth: 0, wordBreak: "break-word",
             }}>{w.lemma}</span>
             <span style={{ fontSize: 11, color: POS_CLR[w.pos] || T.dim, flexShrink: 0 }}>{w.pos}</span>
             <span style={{ fontSize: 12, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>
@@ -232,8 +281,16 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
             Select works to see vocabulary</div>
         )}
       </div>
-      <div style={{ padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.dim, flexShrink: 0 }}>
-        {vocab.length} words</div>
+      <div style={{ padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.dim, flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span>{vocab.length}{totalCount > vocab.length ? ` of ${totalCount}` : ""} words</span>
+        {canLoadMore && (
+          <button onClick={onLoadMore} style={{
+            background: T.gold, border: "none", borderRadius: 3, padding: "2px 8px",
+            color: T.bg, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}>Load more</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1217,20 +1274,25 @@ export default function App() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
+  const [vocabLimit, setVocabLimit] = useState(500);
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
 
-  const { data: authData } = useApi(`${API}/authors`);
+  // Global loading tracker
+  const loading = useLoadingTracker();
+
+  const { data: authData } = useApi(`${API}/authors`, loading);
   const authors = authData?.authors || [];
 
   const [worksMap, setWorksMap] = useState({});
   useEffect(() => {
     authors.forEach(a => {
       if (!worksMap[a.author]) {
+        loading.start();
         fetch(`${API}/works?author=${encodeURIComponent(a.author)}`)
           .then(r => r.json()).then(d => {
             setWorksMap(prev => ({ ...prev, [a.author]: d.works || [] }));
-          }).catch(() => {});
+          }).catch(() => {}).finally(() => loading.stop());
       }
     });
   }, [authors]);
@@ -1238,29 +1300,30 @@ export default function App() {
   const vocabUrl = useMemo(() => {
     const al = [...selectedAuthors], wl = [...selectedWorks];
     if (al.length === 0 && wl.length === 0) return null;
-    if (al.length > 0) return `${API}/vocab?author=${encodeURIComponent(al[0])}&limit=2000&sort=${vocabSort}&min_freq=1`;
-    if (wl.length > 0) return `${API}/vocab?work_id=${wl[0]}&limit=2000&sort=${vocabSort}&min_freq=1`;
+    if (al.length > 0) return `${API}/vocab?author=${encodeURIComponent(al[0])}&limit=${vocabLimit}&sort=${vocabSort}&min_freq=1`;
+    if (wl.length > 0) return `${API}/vocab?work_id=${wl[0]}&limit=${vocabLimit}&sort=${vocabSort}&min_freq=1`;
     return null;
-  }, [selectedAuthors, selectedWorks, vocabSort]);
+  }, [selectedAuthors, selectedWorks, vocabSort, vocabLimit]);
 
-  const { data: vocabData, loading: vocabLoading } = useApi(vocabUrl);
+  const { data: vocabData, loading: vocabLoading } = useApi(vocabUrl, loading);
 
   const [extraVocab, setExtraVocab] = useState([]);
   useEffect(() => {
     const al = [...selectedAuthors], wl = [...selectedWorks];
     const fetches = [];
     if (al.length > 1) al.slice(1).forEach(a => {
-      fetches.push(fetch(`${API}/vocab?author=${encodeURIComponent(a)}&limit=2000&sort=frequency&min_freq=1`)
+      fetches.push(fetch(`${API}/vocab?author=${encodeURIComponent(a)}&limit=${vocabLimit}&sort=frequency&min_freq=1`)
         .then(r => r.json()).then(d => d.vocab || []).catch(() => []));
     });
     const wf = al.length > 0 ? wl : [...wl].slice(1);
     wf.forEach(wid => {
-      fetches.push(fetch(`${API}/vocab?work_id=${wid}&limit=2000&sort=frequency&min_freq=1`)
+      fetches.push(fetch(`${API}/vocab?work_id=${wid}&limit=${vocabLimit}&sort=frequency&min_freq=1`)
         .then(r => r.json()).then(d => d.vocab || []).catch(() => []));
     });
     if (fetches.length === 0) { setExtraVocab([]); return; }
-    Promise.all(fetches).then(r => setExtraVocab(r.flat()));
-  }, [selectedAuthors, selectedWorks]);
+    loading.start();
+    Promise.all(fetches).then(r => setExtraVocab(r.flat())).finally(() => loading.stop());
+  }, [selectedAuthors, selectedWorks, vocabLimit]);
 
   const vocab = useMemo(() => {
     const all = [...(vocabData?.vocab || []), ...extraVocab];
@@ -1282,11 +1345,11 @@ export default function App() {
     return list;
   }, [vocabData, extraVocab, vocabSort, vocabSearch, posFilter]);
 
-  const { data: statusData } = useApi(`${API}/status`);
+  const { data: statusData } = useApi(`${API}/status`, loading);
   const connected = !!statusData;
   const superuser = !!statusData?.superuser;
 
-  const { data: lemmaDetail } = useApi(selectedWord ? `${API}/lemma/${selectedWord.id}?v=${familyVersion}` : null);
+  const { data: lemmaDetail } = useApi(selectedWord ? `${API}/lemma/${selectedWord.id}?v=${familyVersion}` : null, loading);
   const familyAll = lemmaDetail?.family || null;
   const bumpFamily = useCallback(() => setFamilyVersion(v => v + 1), []);
 
@@ -1306,9 +1369,11 @@ export default function App() {
 
   const toggleAuthor = useCallback(a => {
     setSelectedAuthors(prev => { const n = new Set(prev); n.has(a) ? n.delete(a) : n.add(a); return n; });
+    setVocabLimit(500);
   }, []);
   const toggleWork = useCallback(id => {
     setSelectedWorks(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setVocabLimit(500);
   }, []);
 
   useEffect(() => {
@@ -1328,6 +1393,7 @@ export default function App() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column",
       background: T.bg, color: T.text, fontFamily: T.font, overflow: "hidden" }}>
+      <LoadingBar visible={loading.visible} />
       <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet" />
 
       {/* Header */}
@@ -1375,7 +1441,10 @@ export default function App() {
                 sort={vocabSort} onSortChange={setVocabSort}
                 searchQ={vocabSearch} onSearchChange={setVocabSearch}
                 loading={vocabLoading}
-                posFilter={posFilter} onPosFilterChange={togglePos} />
+                posFilter={posFilter} onPosFilterChange={togglePos}
+                totalCount={vocabData?.count || vocab.length}
+                canLoadMore={(vocabData?.count || 0) >= vocabLimit}
+                onLoadMore={() => setVocabLimit(prev => prev + 500)} />
             </div>
           </div>
         </CollapsiblePanel>

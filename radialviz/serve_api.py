@@ -269,7 +269,7 @@ def get_vocab():
 
     limit = request.args.get("limit", 200, type=int)
     offset = request.args.get("offset", 0, type=int)
-    limit = min(limit, 2000)
+    limit = min(limit, 15000)
 
     where = "WHERE " + " AND ".join(conditions)
 
