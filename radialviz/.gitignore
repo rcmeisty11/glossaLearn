@@ -12,6 +12,8 @@ build/
 
 # Local databases / large artifacts
 *.db
+*.db-shm
+*.db-wal
 
 # Env / secrets
 .env

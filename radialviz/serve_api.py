@@ -135,6 +135,22 @@ def status():
 
 
 # ─────────────────────────────────────────────
+# GET /api/download-db
+# Download the full SQLite database
+# ─────────────────────────────────────────────
+DOWNLOAD_TOKEN = os.environ.get("DOWNLOAD_TOKEN", "glossalearn2026")
+
+@app.route("/api/download-db")
+def download_db():
+    if request.args.get("token") != DOWNLOAD_TOKEN:
+        return jsonify({"error": "Invalid or missing token"}), 403
+    if not DB_PATH.exists():
+        return jsonify({"error": "Database not available"}), 503
+    from flask import send_file
+    return send_file(str(DB_PATH), as_attachment=True, download_name="greek_vocab.db")
+
+
+# ─────────────────────────────────────────────
 # GET /api/works
 # List all works, optionally filtered by author
 #

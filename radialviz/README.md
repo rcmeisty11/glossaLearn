@@ -252,6 +252,10 @@ Derivational families group Greek words that share a common root (e.g. βάλλ�
 
    The Morpheus data is converted from Perseus Beta Code to Unicode, matched against the lemma table, and used to: create new families from shared stems, set hierarchical parent-child links within families, and merge families that Morpheus reveals share the same root. Existing manually curated families are preserved and enriched, not overwritten.
 
+3. **Approximate stemming** (SUPERUSER)- a superuser was created in order to create connections and create more refinements in the connections that exist. As we build this data out more, we will add more people to be able to edit the database directly when requested and create more connections.
+
+For those who would like access to the data, you may write randallcraigmeister [at] gmail [dot] and request a token and download the data at the endpoint: https://api.glossalearn.com/api/download-db?token=[INSERTOKENWITHOUTBRACKETS]
+
 ### Attribution & License
 
 The Morpheus stem data is from the [Perseus Digital Library](http://www.perseus.tufts.edu/) at Tufts University:
