@@ -14,7 +14,7 @@ const T = {
   font:"'EB Garamond',Georgia,serif",
   mono:"'JetBrains Mono',monospace",
   // Font size scale — bump everything up for readability
-  xs: 11, sm: 12, md: 14, lg: 16, xl: 24,
+  xs: 13, sm: 14, md: 16, lg: 18, xl: 26,
 };
 const POS_CLR = {
   noun:T.gold, verb:T.blue, adjective:T.green, adverb:T.purple,
