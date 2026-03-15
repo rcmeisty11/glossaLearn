@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Family Tree Mockup</title>
+<style>
+  body { margin: 0; background: #0e0d0b; color: #c8bfa8; font-family: 'Georgia', serif; }
+  h2 { text-align: center; color: #d4a843; margin: 20px 0 5px; font-size: 18px; }
+  .controls { text-align: center; margin: 0 0 10px; }
+  .controls button {
+    background: #1a1815; color: #c8bfa8; border: 1px solid #302c25;
+    padding: 6px 14px; margin: 0 4px; border-radius: 4px; cursor: pointer;
+    font-family: Georgia, serif; font-size: 13px;
+  }
+  .controls button:hover { border-color: #d4a843; color: #d4a843; }
+  .controls button.active { border-color: #d4a843; color: #d4a843; background: #211f1a; }
+  svg { display: block; margin: 0 auto; background: #0e0d0b; }
+</style>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+<h2>Proposed Family Tree Layout</h2>
+<div class="controls">
+  <button id="btn-small" class="active" onclick="loadData('small')">βάλλω (11 derivatives)</button>
+  <button id="btn-large" onclick="loadData('large')">λέγω (35 derivatives)</button>
+</div>
+
+<svg id="tree"></svg>
+
+<script>
+const T = {
+  bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
+  border:"#302c25", text:"#c8bfa8", dim:"#8a7f6e", bright:"#efe6d0",
+  gold:"#d4a843", goldDim:"#a68432",
+  blue:"#5a8fb4", green:"#6b9c6b", purple:"#8b6fa8", teal:"#5a9e94",
+};
+const posClr = { verb: T.blue, noun: T.gold, adjective: T.green, adverb: T.purple };
+
+const smallData = {
+  lemma: "βάλλω", pos: "verb", def: "throw, strike",
+  children: [
+    { lemma: "διαβάλλω", pos: "verb", def: "slander, accuse", relation: "δια-",
+      children: [
+        { lemma: "διάβολος", pos: "noun", def: "slanderer, devil", relation: "derived" },
+        { lemma: "διαβολή", pos: "noun", def: "slander, accusation", relation: "derived" },
+      ]
+    },
+    { lemma: "καταβάλλω", pos: "verb", def: "throw down, overthrow", relation: "κατα-",
+      children: [{ lemma: "καταβολή", pos: "noun", def: "foundation, beginning", relation: "derived" }]
+    },
+    { lemma: "ἐκβάλλω", pos: "verb", def: "throw out, cast out", relation: "ἐκ-",
+      children: [{ lemma: "ἐκβολή", pos: "noun", def: "a throwing out", relation: "derived" }]
+    },
+    { lemma: "ἐμβάλλω", pos: "verb", def: "throw in, invade", relation: "ἐν-" },
+    { lemma: "παραβάλλω", pos: "verb", def: "throw beside, compare", relation: "παρα-",
+      children: [{ lemma: "παραβολή", pos: "noun", def: "comparison, parable", relation: "derived" }]
+    },
+    { lemma: "ἀναβάλλω", pos: "verb", def: "throw up, delay", relation: "ἀνα-",
+      children: [{ lemma: "ἀναβολή", pos: "noun", def: "a putting off, delay", relation: "derived" }]
+    },
+    { lemma: "ἐπιβάλλω", pos: "verb", def: "throw upon, lay on", relation: "ἐπι-" },
+    { lemma: "συμβάλλω", pos: "verb", def: "throw together, join", relation: "συν-",
+      children: [
+        { lemma: "σύμβολον", pos: "noun", def: "token, sign, symbol", relation: "derived" },
+        { lemma: "συμβολή", pos: "noun", def: "meeting, contribution", relation: "derived" },
+      ]
+    },
+    { lemma: "ὑπερβάλλω", pos: "verb", def: "throw beyond, exceed", relation: "ὑπερ-",
+      children: [{ lemma: "ὑπερβολή", pos: "noun", def: "excess, hyperbole", relation: "derived" }]
+    },
+    { lemma: "βλητέον", pos: "adjective", def: "one must throw", relation: "vbl. adj." },
+    { lemma: "βολή", pos: "noun", def: "a throw, stroke", relation: "derived" },
+  ]
+};
+
+const largeData = {
+  lemma: "λέγω", pos: "verb", def: "say, speak, tell",
+  children: [
+    { lemma: "λόγος", pos: "noun", def: "word, speech, reason", relation: "derived",
+      children: [
+        { lemma: "λογικός", pos: "adjective", def: "rational, logical", relation: "derived" },
+        { lemma: "λογισμός", pos: "noun", def: "calculation, reasoning", relation: "derived" },
+      ]
+    },
+    { lemma: "λέξις", pos: "noun", def: "speech, diction", relation: "derived" },
+    { lemma: "διαλέγω", pos: "verb", def: "converse, discuss", relation: "δια-",
+      children: [
+        { lemma: "διάλογος", pos: "noun", def: "dialogue", relation: "derived" },
+        { lemma: "διάλεκτος", pos: "noun", def: "dialect", relation: "derived" },
+        { lemma: "διαλεκτικός", pos: "adjective", def: "dialectical", relation: "derived" },
+      ]
+    },
+    { lemma: "καταλέγω", pos: "verb", def: "pick out, enroll", relation: "κατα-",
+      children: [{ lemma: "κατάλογος", pos: "noun", def: "list, catalog", relation: "derived" }]
+    },
+    { lemma: "ἐκλέγω", pos: "verb", def: "pick out, select", relation: "ἐκ-",
+      children: [{ lemma: "ἐκλογή", pos: "noun", def: "selection, choice", relation: "derived" }]
+    },
+    { lemma: "ἐπιλέγω", pos: "verb", def: "choose, say in addition", relation: "ἐπι-",
+      children: [{ lemma: "ἐπίλογος", pos: "noun", def: "epilogue", relation: "derived" }]
+    },
+    { lemma: "συλλέγω", pos: "verb", def: "gather, collect", relation: "συν-",
+      children: [
+        { lemma: "συλλογή", pos: "noun", def: "collection", relation: "derived" },
+        { lemma: "συλλογισμός", pos: "noun", def: "syllogism", relation: "derived" },
+      ]
+    },
+    { lemma: "ἀναλέγω", pos: "verb", def: "gather up, recount", relation: "ἀνα-",
+      children: [
+        { lemma: "ἀνάλογος", pos: "adjective", def: "proportional", relation: "derived" },
+        { lemma: "ἀναλογία", pos: "noun", def: "analogy, proportion", relation: "derived" },
+      ]
+    },
+    { lemma: "παραλέγω", pos: "verb", def: "sail past, recount", relation: "παρα-" },
+    { lemma: "προλέγω", pos: "verb", def: "say beforehand", relation: "προ-",
+      children: [{ lemma: "πρόλογος", pos: "noun", def: "prologue", relation: "derived" }]
+    },
+    { lemma: "ἀπολέγω", pos: "verb", def: "pick out, renounce", relation: "ἀπο-",
+      children: [
+        { lemma: "ἀπολογία", pos: "noun", def: "defense, apology", relation: "derived" },
+        { lemma: "ἀπόλογος", pos: "noun", def: "fable, story", relation: "derived" },
+      ]
+    },
+    { lemma: "ἀντιλέγω", pos: "verb", def: "speak against", relation: "ἀντι-",
+      children: [{ lemma: "ἀντιλογία", pos: "noun", def: "contradiction", relation: "derived" }]
+    },
+    { lemma: "λεκτέον", pos: "adjective", def: "one must say", relation: "vbl. adj." },
+    { lemma: "λεκτός", pos: "adjective", def: "chosen, said", relation: "derived" },
+    { lemma: "λογίζομαι", pos: "verb", def: "reckon, calculate", relation: "derived" },
+    { lemma: "εὐλογέω", pos: "verb", def: "speak well, bless", relation: "εὐ-",
+      children: [{ lemma: "εὐλογία", pos: "noun", def: "praise, blessing", relation: "derived" }]
+    },
+    { lemma: "ὁμολογέω", pos: "verb", def: "agree, confess", relation: "ὁμο-",
+      children: [{ lemma: "ὁμολογία", pos: "noun", def: "agreement, confession", relation: "derived" }]
+    },
+    { lemma: "λογοποιός", pos: "noun", def: "story-writer", relation: "derived" },
+    { lemma: "λογογράφος", pos: "noun", def: "speech-writer", relation: "derived" },
+    { lemma: "φιλόλογος", pos: "adjective", def: "fond of words", relation: "derived" },
+    { lemma: "ἄλογος", pos: "adjective", def: "without reason", relation: "derived" },
+    { lemma: "εὔλογος", pos: "adjective", def: "reasonable", relation: "derived" },
+    { lemma: "πολυλογία", pos: "noun", def: "much speaking", relation: "derived" },
+    { lemma: "βραχυλογία", pos: "noun", def: "brevity of speech", relation: "derived" },
+    { lemma: "λογεῖον", pos: "noun", def: "speaking-place", relation: "derived" },
+    { lemma: "λογάς", pos: "noun", def: "picked, chosen", relation: "derived" },
+    { lemma: "ἐλλογέω", pos: "verb", def: "reckon in", relation: "ἐν-" },
+    { lemma: "περιλέγω", pos: "verb", def: "strip off, wind around", relation: "περι-" },
+    { lemma: "προσλέγω", pos: "verb", def: "address, call", relation: "προσ-" },
+    { lemma: "ὑπολέγω", pos: "verb", def: "answer, suggest", relation: "ὑπο-" },
+    { lemma: "μεταλέγω", pos: "verb", def: "say differently", relation: "μετα-" },
+    { lemma: "διαλογισμός", pos: "noun", def: "deliberation", relation: "derived" },
+    { lemma: "ἀλογία", pos: "noun", def: "unreason", relation: "derived" },
+    { lemma: "λογοθέτης", pos: "noun", def: "auditor, chancellor", relation: "derived" },
+    { lemma: "θεολόγος", pos: "noun", def: "theologian", relation: "derived" },
+  ]
+};
+
+const width = window.innerWidth;
+const height = window.innerHeight - 100;
+const svg = d3.select("#tree").attr("width", width).attr("height", height);
+const g = svg.append("g");
+
+const zoomBehavior = d3.zoom()
+  .scaleExtent([0.2, 4])
+  .on("zoom", (e) => g.attr("transform", e.transform));
+svg.call(zoomBehavior);
+svg.style("cursor", "grab");
+
+function loadData(key) {
+  document.querySelectorAll(".controls button").forEach(b => b.classList.remove("active"));
+  document.getElementById("btn-" + key).classList.add("active");
+  render(key === "large" ? largeData : smallData);
+}
+
+function render(data) {
+  g.selectAll("*").remove();
+
+  // Give every node a "value" so partition knows how to size wedges
+  // Leaf nodes = 1, parents = sum of children
+  function addValue(node) {
+    if (!node.children || node.children.length === 0) {
+      node.value = 1;
+    } else {
+      node.children.forEach(addValue);
+      node.value = node.children.reduce((s, c) => s + c.value, 0);
+    }
+  }
+  const dataCopy = JSON.parse(JSON.stringify(data));
+  addValue(dataCopy);
+
+  const root = d3.hierarchy(dataCopy).sum(d => d.children ? 0 : 1);
+
+  // Ring radii
+  // Scale ring radii based on number of leaf nodes so text always fits
+  const leafCount = root.leaves().length;
+  const scale = Math.max(1, leafCount / 14); // 14 leaves = base size
+  const R_ROOT = Math.round(70 * scale);
+  const R1_INNER = Math.round(90 * scale);
+  const R1_OUTER = Math.round(210 * scale);
+  const R2_INNER = Math.round(220 * scale);
+  const R2_OUTER = Math.round(320 * scale);
+
+  // Partition layout — gives each node x0,x1 (angle fraction 0-1) and y0,y1 (depth)
+  const partition = d3.partition()
+    .size([2 * Math.PI, 1])
+    .padding(0.01);
+
+  partition(root);
+
+  // Map depth to radii
+  function innerR(d) {
+    if (d.depth === 0) return 0;
+    if (d.depth === 1) return R1_INNER;
+    return R2_INNER;
+  }
+  function outerR(d) {
+    if (d.depth === 0) return R_ROOT;
+    if (d.depth === 1) return R1_OUTER;
+    return R2_OUTER;
+  }
+
+  // Arc generator
+  const arc = d3.arc()
+    .startAngle(d => d.x0)
+    .endAngle(d => d.x1)
+    .innerRadius(d => innerR(d))
+    .outerRadius(d => outerR(d))
+    .padAngle(0.008)
+    .padRadius(R1_INNER);
+
+  // Center and fit
+  svg.call(zoomBehavior.transform, d3.zoomIdentity
+    .translate(width / 2, height / 2)
+    .scale(Math.min(width, height) / (R2_OUTER * 2 + 80)));
+
+  // Rotation state — we'll rotate the inner `g` to spin clicked slice to the right
+  let currentRotation = 0;
+  const spinG = g.append("g"); // inner group that rotates
+
+  // Draw arcs
+  const slices = spinG.selectAll(".slice")
+    .data(root.descendants())
+    .join("g")
+    .attr("class", "slice")
+    .style("cursor", "pointer");
+
+  // Root circle
+  slices.filter(d => d.depth === 0)
+    .append("circle")
+    .attr("r", R_ROOT)
+    .attr("fill", T.raised)
+    .attr("stroke", T.gold)
+    .attr("stroke-width", 2)
+    .attr("stroke-opacity", 0.8);
+
+  // Root glow
+  slices.filter(d => d.depth === 0)
+    .append("circle")
+    .attr("r", R_ROOT + 6)
+    .attr("fill", "none")
+    .attr("stroke", T.gold)
+    .attr("stroke-width", 1)
+    .attr("stroke-opacity", 0.15);
+
+  // Non-root arcs
+  slices.filter(d => d.depth > 0)
+    .append("path")
+    .attr("d", arc)
+    .attr("fill", d => {
+      const clr = posClr[d.data.pos] || T.dim;
+      // Make depth-2 slightly darker
+      return d.depth === 2 ? d3.color(clr).darker(0.8) : d3.color(clr).darker(1.5);
+    })
+    .attr("stroke", T.bg)
+    .attr("stroke-width", 1.5)
+    .attr("opacity", 0.85);
+
+  // Hover effect
+  slices.filter(d => d.depth > 0)
+    .on("mouseenter", function(e, d) {
+      d3.select(this).select("path")
+        .transition().duration(100)
+        .attr("opacity", 1)
+        .attr("stroke", T.gold)
+        .attr("stroke-width", 2);
+    })
+    .on("mouseleave", function(e, d) {
+      d3.select(this).select("path")
+        .transition().duration(150)
+        .attr("opacity", 0.85)
+        .attr("stroke", T.bg)
+        .attr("stroke-width", 1.5);
+    });
+
+  // Click to rotate — spin so the clicked slice's midpoint lands at the right (3 o'clock)
+  slices.filter(d => d.depth > 0)
+    .on("click", function(e, d) {
+      const midAngle = (d.x0 + d.x1) / 2;
+      // Bring midAngle to 3 o'clock position (π/2 in partition coords = right)
+      const targetRotation = -(midAngle * 180 / Math.PI) + 90;
+      currentRotation = targetRotation;
+
+      // Rotate the whole chart
+      spinG.transition().duration(600).ease(d3.easeCubicInOut)
+        .attr("transform", `rotate(${currentRotation})`);
+
+      // Counter-rotate root text so it stays upright
+      spinG.selectAll(".root-text")
+        .transition().duration(600).ease(d3.easeCubicInOut)
+        .attr("transform", `rotate(${-currentRotation})`);
+
+      // Counter-rotate each arc label so text stays readable
+      spinG.selectAll(".arc-label").each(function() {
+        const labelD = d3.select(this).datum();
+        const lMid = (labelD.x0 + labelD.x1) / 2;
+        const lMidR = (innerR(labelD) + outerR(labelD)) / 2;
+        // New world-angle after rotation
+        const worldAngle = lMid + currentRotation * Math.PI / 180;
+        const lx = lMidR * Math.sin(lMid);
+        const ly = -lMidR * Math.cos(lMid);
+        // Flip text if it would be upside-down after rotation
+        const wa = ((worldAngle % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+        const textRot = (lMid * 180 / Math.PI) - 90 + (wa > Math.PI ? 180 : 0);
+        d3.select(this)
+          .transition().duration(600).ease(d3.easeCubicInOut)
+          .attr("transform", `translate(${lx},${ly}) rotate(${textRot})`);
+      });
+    });
+
+  // Text labels
+  // Root text — wrapped in a group so we can counter-rotate it
+  const rootG = slices.filter(d => d.depth === 0);
+  const rootTextG = rootG.append("g").attr("class", "root-text");
+  const rFS = Math.min(20, Math.round(R_ROOT * 0.28)); // scale font to root size
+  rootTextG.append("text")
+    .attr("text-anchor", "middle").attr("y", -rFS)
+    .attr("fill", T.goldDim).attr("font-size", "9px")
+    .attr("font-family", "monospace").attr("letter-spacing", "2px")
+    .text("ROOT");
+  rootTextG.append("text")
+    .attr("text-anchor", "middle").attr("y", rFS * 0.3)
+    .attr("fill", T.bright).attr("font-size", rFS + "px").attr("font-weight", 700)
+    .text(data.lemma);
+  rootTextG.append("text")
+    .attr("text-anchor", "middle").attr("y", rFS * 1.2)
+    .attr("fill", posClr[data.pos] || T.dim).attr("font-size", "11px").attr("font-weight", 600)
+    .text(data.pos);
+  rootTextG.append("text")
+    .attr("text-anchor", "middle").attr("y", rFS * 2)
+    .attr("fill", T.dim).attr("font-size", "9px").attr("font-style", "italic")
+    .text(data.def);
+
+  // Labels for depth-1 and depth-2 arcs
+  // Use arc centroid for positioning, rotate text to follow the arc
+  slices.filter(d => d.depth > 0).each(function(d) {
+    const el = d3.select(this);
+    const midAngle = (d.x0 + d.x1) / 2;
+    const midR = (innerR(d) + outerR(d)) / 2;
+    const arcSpan = d.x1 - d.x0; // angular width in radians
+
+    // Skip labels for very thin slices
+    if (arcSpan < 0.04) return;
+
+    const x = midR * Math.sin(midAngle);
+    const y = -midR * Math.cos(midAngle);
+    const rotation = (midAngle * 180 / Math.PI) - 90 + (midAngle > Math.PI ? 180 : 0);
+    const flip = midAngle > Math.PI;
+
+    const textG = el.append("g")
+      .attr("class", "arc-label")
+      .datum(d) // store datum for counter-rotation
+      .attr("transform", `translate(${x},${y}) rotate(${rotation})`);
+
+    // Lemma
+    const fontSize = d.depth === 1
+      ? (arcSpan > 0.2 ? "13px" : arcSpan > 0.1 ? "11px" : "9px")
+      : (arcSpan > 0.15 ? "11px" : arcSpan > 0.08 ? "9px" : "7px");
+
+    textG.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", d.depth === 1 && arcSpan > 0.12 ? "-0.3em" : "0.1em")
+      .attr("fill", T.bright)
+      .attr("font-size", fontSize)
+      .attr("font-weight", 500)
+      .text(d.data.lemma);
+
+    // POS label for wider slices
+    if (arcSpan > 0.12 && d.depth === 1) {
+      textG.append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", "1em")
+        .attr("fill", posClr[d.data.pos] || T.dim)
+        .attr("font-size", "9px")
+        .attr("font-weight", 600)
+        .text(d.data.pos);
+    }
+
+    // Relation label for depth-1
+    if (d.depth === 1 && d.data.relation && arcSpan > 0.15) {
+      textG.append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", "2.2em")
+        .attr("fill", T.goldDim)
+        .attr("font-size", "7px")
+        .attr("font-family", "monospace")
+        .attr("opacity", 0.7)
+        .text(d.data.relation);
+    }
+  });
+
+  // Tooltip on hover for all non-root nodes
+  const tooltip = d3.select("body").selectAll(".tooltip").data([0]).join("div")
+    .attr("class", "tooltip")
+    .style("position", "fixed")
+    .style("pointer-events", "none")
+    .style("background", T.surface)
+    .style("border", `1px solid ${T.border}`)
+    .style("border-radius", "6px")
+    .style("padding", "8px 12px")
+    .style("font-size", "13px")
+    .style("color", T.bright)
+    .style("display", "none")
+    .style("z-index", "999")
+    .style("font-family", "Georgia, serif");
+
+  slices.filter(d => d.depth > 0)
+    .on("mousemove", function(e, d) {
+      const posColor = posClr[d.data.pos] || T.dim;
+      tooltip
+        .style("display", "block")
+        .style("left", (e.clientX + 15) + "px")
+        .style("top", (e.clientY - 10) + "px")
+        .html(`<strong>${d.data.lemma}</strong><br>
+          <span style="color:${posColor};font-weight:600">${d.data.pos}</span><br>
+          <em style="color:${T.dim};font-size:11px">${d.data.def || ""}</em>
+          ${d.data.relation ? `<br><span style="color:${T.goldDim};font-size:10px;font-family:monospace">${d.data.relation}</span>` : ""}`);
+    })
+    .on("mouseleave", function() {
+      tooltip.style("display", "none");
+    });
+}
+
+loadData("small");
+</script>
+</body>
+</html>

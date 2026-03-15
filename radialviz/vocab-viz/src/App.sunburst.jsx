@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
-import FamilyTreeSunburst from "./FamilyTreeSunburst.jsx";
 
 const API = import.meta.env.PROD ? "https://api.glossalearn.com/api" : "http://127.0.0.1:5000/api";
 
@@ -320,8 +319,12 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
 function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
+  const onSelectRef = useRef(onSelectMember);
+  onSelectRef.current = onSelectMember;
+  const onNodeActionRef = useRef(onNodeAction);
+  onNodeActionRef.current = onNodeAction;
 
-  // Set up D3 zoom — re-run whenever the SVG mounts (always rendered now)
+  // Set up D3 zoom
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
@@ -345,7 +348,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     return () => { svg.on(".zoom", null); };
   }, []);
 
-  // Draw family tree content
+  // Draw sunburst
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
@@ -355,8 +358,10 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     }
     g.selectAll("*").remove();
 
+    // Remove any leftover tooltip
+    d3.select("body").selectAll(".family-tooltip").remove();
+
     if (!family?.members?.length) {
-      // Reset zoom to center when no family
       if (zoomRef.current) {
         const t = d3.zoomIdentity.translate(width / 2, height / 2);
         svg.call(zoomRef.current.transform, t);
@@ -364,290 +369,301 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       return;
     }
 
+    // ── Convert flat members array to nested hierarchy ──
     const members = [...family.members];
     let rootIdx = members.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...members.filter(x => x.relation === "root").map(x => x.total_occurrences)));
     if (rootIdx < 0) rootIdx = 0;
-    const root = members[rootIdx];
+    const rootMember = members[rootIdx];
     const others = members.filter((_, i) => i !== rootIdx);
 
-    const nW = 145, nH = 58; // node dimensions
-    const gap = 150;
-
-    // ── Build parent/child maps ──
     const memberById = new Map(members.map(m => [m.id, m]));
-    const childrenOf = new Map(); // parent_id → [member, ...]
+    const childrenOf = new Map();
     others.forEach(m => {
-      const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : root.id;
+      const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : rootMember.id;
       if (!childrenOf.has(pid)) childrenOf.set(pid, []);
       childrenOf.get(pid).push(m);
     });
 
-    // Collect all descendants of a node
-    const getDescendants = (id) => {
-      const desc = new Set();
-      const stack = childrenOf.get(id) || [];
-      for (const c of stack) {
-        desc.add(c.id);
-        for (const d of getDescendants(c.id)) desc.add(d);
+    // Build nested tree data for d3.hierarchy
+    const buildTree = (member) => {
+      const node = {
+        lemma: member.lemma,
+        pos: member.pos || "",
+        def: (member.short_def || "").replace(/,\s*$/, ""),
+        relation: member.relation || "",
+        member: member, // keep reference to original member
+      };
+      const kids = childrenOf.get(member.id);
+      if (kids && kids.length > 0) {
+        // Sort by POS so same types are grouped together in the sunburst
+        const sorted = [...kids].sort((a, b) => (a.pos || "").localeCompare(b.pos || ""));
+        node.children = sorted.map(k => buildTree(k));
       }
-      return desc;
+      return node;
+    };
+    const treeData = buildTree(rootMember);
+
+    // ── D3 partition (sunburst) layout ──
+    const root = d3.hierarchy(treeData).sum(d => d.children ? 0 : 1);
+
+    // Scale radii based on leaf count so text fits
+    const leafCount = root.leaves().length;
+    const rScale = Math.max(1, leafCount / 14);
+    const R_ROOT = Math.round(70 * rScale);
+    const R1_INNER = Math.round(90 * rScale);
+    const R1_OUTER = Math.round(210 * rScale);
+    const R2_INNER = Math.round(220 * rScale);
+    const R2_OUTER = Math.round(320 * rScale);
+
+    // Support deeper levels
+    const innerR = (d) => {
+      if (d.depth === 0) return 0;
+      if (d.depth === 1) return R1_INNER;
+      if (d.depth === 2) return R2_INNER;
+      return R2_INNER + (d.depth - 2) * Math.round(100 * rScale);
+    };
+    const outerR = (d) => {
+      if (d.depth === 0) return R_ROOT;
+      if (d.depth === 1) return R1_OUTER;
+      if (d.depth === 2) return R2_OUTER;
+      return R2_OUTER + (d.depth - 2) * Math.round(100 * rScale);
     };
 
-    // ── Determine focus ──
-    // "focusNode" = the ring-1 node (direct child of root) whose branch is expanded.
-    // If detailWord is a ring-1 node with children, it is the focus.
-    // If detailWord is deeper, walk up to find which ring-1 ancestor owns it.
-    const ring1 = childrenOf.get(root.id) || [];
-    const ring1Ids = new Set(ring1.map(m => m.id));
+    const partition = d3.partition()
+      .size([2 * Math.PI, 1])
+      .padding(0.01);
+    partition(root);
 
-    let focusId = null;
-    if (detailWord && detailWord.id !== root.id) {
-      // Walk up parent chain to find ring-1 ancestor
-      let cur = detailWord.id;
-      const visited = new Set();
-      while (cur && !ring1Ids.has(cur) && !visited.has(cur)) {
-        visited.add(cur);
-        const mem = memberById.get(cur);
-        if (!mem) break;
-        cur = (mem.parent_lemma_id && memberById.has(mem.parent_lemma_id)) ? mem.parent_lemma_id : null;
-      }
-      if (cur && ring1Ids.has(cur)) {
-        // Only focus if this ring-1 node actually has children
-        if (childrenOf.has(cur) && childrenOf.get(cur).length > 0) focusId = cur;
-      }
-    }
+    const arc = d3.arc()
+      .startAngle(d => d.x0)
+      .endAngle(d => d.x1)
+      .innerRadius(d => innerR(d))
+      .outerRadius(d => outerR(d))
+      .padAngle(0.008)
+      .padRadius(R1_INNER);
 
-    const focusDescendants = focusId ? getDescendants(focusId) : new Set();
-
-    // ── Ring 1: direct children of root ──
-    const ring1Radius = Math.max(ring1.length * (nW * 0.3 + gap) / (2 * Math.PI), 170);
-
-    // Assign angles to ring-1 nodes
-    const ring1Angles = new Map();
-    ring1.forEach((m, i) => {
-      ring1Angles.set(m.id, (i / ring1.length) * 2 * Math.PI - Math.PI / 2);
+    // Find max outer radius for auto-fit
+    let maxOuterR = R2_OUTER;
+    root.descendants().forEach(d => {
+      const oR = outerR(d);
+      if (oR > maxOuterR) maxOuterR = oR;
     });
 
-    // ── Position map ──
-    const posMap = new Map();
-    posMap.set(root.id, { x: 0, y: 0 });
-
-    // Place ring-1 nodes
-    ring1.forEach(m => {
-      const angle = ring1Angles.get(m.id);
-      const r = ring1Radius;
-      posMap.set(m.id, { x: Math.cos(angle) * r, y: Math.sin(angle) * r });
-    });
-
-    // Place deeper nodes: fan out behind their parent, along the parent's radial angle
-    const placeChildren = (parentId, parentAngle, parentR, depth) => {
-      const kids = childrenOf.get(parentId) || [];
-      if (kids.length === 0) return;
-      const expanded = focusId && (parentId === focusId || focusDescendants.has(parentId));
-      const childR = parentR + (expanded ? (nH + gap * 0.8) : 70);
-      // Spread children in a small arc centered on parent's angle
-      const arcSpan = expanded ? Math.min(kids.length * 0.25, 1.2) : Math.min(kids.length * 0.08, 0.4);
-      kids.forEach((m, i) => {
-        const offset = kids.length === 1 ? 0 : (i / (kids.length - 1) - 0.5) * arcSpan;
-        const angle = parentAngle + offset;
-        const r = childR;
-        posMap.set(m.id, { x: Math.cos(angle) * r, y: Math.sin(angle) * r });
-        placeChildren(m.id, angle, r, depth + 1);
-      });
-    };
-    ring1.forEach(m => {
-      placeChildren(m.id, ring1Angles.get(m.id), ring1Radius, 2);
-    });
-
-    // ── Determine node visual size ──
-    // "scale" per node: 1.0 = full, smaller = collapsed
-    const getNodeScale = (m) => {
-      if (m.id === root.id) return focusId ? 0.3 : 1.0;
-      if (ring1Ids.has(m.id)) {
-        if (!focusId) return 1.0;
-        return m.id === focusId ? 1.15 : 0.55;
-      }
-      // Deeper node
-      if (!focusId) return 0.3; // tiny dots when nothing focused
-      if (focusDescendants.has(m.id)) return 1.0; // expanded
-      return 0.0; // hidden — belongs to a different branch
-    };
-
-    // ── Draw a node at given position and scale ──
-    const drawNode = (parent, x, y, m, isRoot, scale) => {
-      if (scale <= 0) return; // hidden
-
-      const ng = parent.append("g")
-        .attr("transform", `translate(${x},${y})`)
-        .style("cursor", "pointer");
-
-      const clr = POS_CLR[m.pos] || T.dim;
-      const isSel = m.id === selectedWord?.id;
-      const isDetail = m.id === detailWord?.id;
-
-      const baseW = isRoot ? 155 : nW;
-      const baseH = isRoot ? 62 : nH;
-      const w = baseW * scale;
-      const h = baseH * scale;
-
-      // For tiny nodes (scale < 0.5), just draw a small dot with lemma
-      if (scale < 0.5) {
-        const dotR = Math.max(6 * scale, 3);
-        ng.append("circle").attr("r", dotR)
-          .attr("fill", clr).attr("opacity", 0.5);
-        if (scale >= 0.25) {
-          ng.append("text").attr("text-anchor", "middle").attr("y", dotR + 10)
-            .attr("fill", T.dim).attr("font-size", `${Math.max(7 * scale / 0.3, 5)}px`)
-            .attr("font-family", T.font).attr("opacity", 0.6).text(m.lemma);
-        }
-        ng.on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
-          .on("contextmenu", (event) => {
-            event.preventDefault(); event.stopPropagation();
-            if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
-          });
-        return;
-      }
-
-      // Full node rendering (scaled)
-      if (isSel) {
-        ng.append("rect").attr("x", -w/2 - 6).attr("y", -h/2 - 6)
-          .attr("width", w + 12).attr("height", h + 12).attr("rx", 14 * scale)
-          .attr("fill", T.gold).attr("opacity", .12);
-      }
-      if (isDetail && !isSel) {
-        ng.append("rect").attr("x", -w/2 - 4).attr("y", -h/2 - 4)
-          .attr("width", w + 8).attr("height", h + 8).attr("rx", 12 * scale)
-          .attr("fill", T.blue).attr("opacity", .1);
-      }
-
-      ng.append("rect").attr("x", -w/2).attr("y", -h/2)
-        .attr("width", w).attr("height", h).attr("rx", 8 * scale)
-        .attr("fill", isRoot ? T.raised : T.surface)
-        .attr("stroke", isSel ? T.gold : (isRoot ? T.gold : clr))
-        .attr("stroke-width", isSel ? 2 : (isRoot ? 1.5 : .8))
-        .attr("stroke-opacity", isSel ? 1 : (isRoot ? .7 : .25));
-
-      if (isRoot) {
-        ng.append("text").attr("text-anchor", "middle").attr("y", -h/2 - 4 * scale)
-          .attr("fill", T.goldDim).attr("font-size", `${10 * scale}px`).attr("font-family", T.mono)
-          .attr("letter-spacing", "1.5px").text("ROOT");
-      }
-
-      const fontSize = (isRoot ? 18 : 15) * scale;
-      ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? -10 : -12) * scale)
-        .attr("fill", isSel ? T.gold : T.bright)
-        .attr("font-size", `${fontSize}px`)
-        .attr("font-weight", (isRoot || isSel) ? 700 : 500)
-        .attr("font-family", T.font).text(m.lemma);
-
-      ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 5 : 1) * scale)
-        .attr("fill", clr).attr("font-size", `${11 * scale}px`).attr("font-weight", 600)
-        .attr("font-family", T.font).text(m.pos || "");
-
-      if (scale >= 0.5) {
-        const def = (m.short_def || "").replace(/,\s*$/, "");
-        const maxChars = isRoot ? 35 : 25;
-        const defText = def.length > maxChars ? def.slice(0, maxChars) + "…" : def;
-        ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 18 : 14) * scale)
-          .attr("fill", T.dim).attr("font-size", `${11 * scale}px`).attr("font-style", "italic")
-          .attr("font-family", T.font).text(defText);
-      }
-
-      // Child count badge for ring-1 nodes with children (when collapsed)
-      const kidCount = (childrenOf.get(m.id) || []).length;
-      if (kidCount > 0 && !focusId && !isRoot) {
-        ng.append("circle").attr("cx", w/2 + 2).attr("cy", -h/2 - 2)
-          .attr("r", 7).attr("fill", T.gold).attr("opacity", 0.8);
-        ng.append("text").attr("x", w/2 + 2).attr("y", -h/2 + 1)
-          .attr("text-anchor", "middle").attr("fill", T.bg)
-          .attr("font-size", "9px").attr("font-weight", 700)
-          .attr("font-family", T.mono).text(kidCount);
-      }
-
-      ng.on("mouseenter", function() {
-        d3.select(this).select("rect").transition().duration(80)
-          .attr("stroke", T.gold).attr("stroke-opacity", 1);
-      }).on("mouseleave", function() {
-        if (m.id !== selectedWord?.id) {
-          d3.select(this).select("rect").transition().duration(80)
-            .attr("stroke", isRoot ? T.gold : clr)
-            .attr("stroke-opacity", isRoot ? .7 : .25);
-        }
-      }).on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
-        .on("contextmenu", (event) => {
-          event.preventDefault(); event.stopPropagation();
-          if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
-        });
-    };
-
-    // ── Draw connections ──
-    others.forEach(m => {
-      const scale = getNodeScale(m);
-      if (scale <= 0) return;
-      const pos = posMap.get(m.id);
-      if (!pos) return;
-      const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : root.id;
-      const parentPos = posMap.get(pid) || { x: 0, y: 0 };
-
-      g.append("line")
-        .attr("x1", parentPos.x).attr("y1", parentPos.y)
-        .attr("x2", pos.x).attr("y2", pos.y)
-        .attr("stroke", T.border).attr("stroke-width", scale >= 0.5 ? 1 : 0.5)
-        .attr("stroke-dasharray", scale >= 0.5 ? "4,4" : "2,3")
-        .attr("opacity", scale >= 0.5 ? .5 : .25);
-
-      if (scale >= 0.5 && m.relation && m.relation !== "root") {
-        const lbl = m.relation.replace("prefix ", "").slice(0, 12);
-        const mx = (parentPos.x + pos.x) * 0.5, my = (parentPos.y + pos.y) * 0.5;
-        g.append("text").attr("x", mx).attr("y", my - 4)
-          .attr("text-anchor", "middle").attr("fill", T.goldDim)
-          .attr("font-size", "9px").attr("font-family", T.mono)
-          .attr("opacity", .7).text(lbl);
-      }
-    });
-
-    // ── Draw all nodes ──
-    // Draw non-focused first, then focused branch, then root on top
-    others.forEach(m => {
-      const scale = getNodeScale(m);
-      if (scale <= 0 || (focusId && (m.id === focusId || focusDescendants.has(m.id)))) return;
-      const pos = posMap.get(m.id);
-      if (pos) drawNode(g, pos.x, pos.y, m, false, scale);
-    });
-    // Draw focused branch
-    if (focusId) {
-      const focusMember = memberById.get(focusId);
-      const focusPos = posMap.get(focusId);
-      // Draw focused descendants first, then the focus node on top
-      others.forEach(m => {
-        if (!focusDescendants.has(m.id)) return;
-        const pos = posMap.get(m.id);
-        if (pos) drawNode(g, pos.x, pos.y, m, false, getNodeScale(m));
-      });
-      if (focusMember && focusPos) drawNode(g, focusPos.x, focusPos.y, focusMember, false, getNodeScale(focusMember));
-    }
-    // Draw root last (on top)
-    drawNode(g, 0, 0, root, true, getNodeScale(root));
-
-    // Auto-fit
+    // Center and fit
+    const fitScale = Math.min(width, height) / (maxOuterR * 2 + 80);
     if (zoomRef.current) {
-      let maxR = ring1Radius + nW / 2 + 30;
-      if (focusId) {
-        // Include expanded children in the fit
-        posMap.forEach((pos) => {
-          const dist = Math.sqrt(pos.x * pos.x + pos.y * pos.y);
-          if (dist + nW / 2 + 30 > maxR) maxR = dist + nW / 2 + 30;
-        });
-      }
-      const fitScale = Math.min(width / (maxR * 2 + 40), height / (maxR * 2 + 40), 1);
-      const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(fitScale);
-      svg.call(zoomRef.current.transform, t);
+      svg.call(zoomRef.current.transform, d3.zoomIdentity
+        .translate(width / 2, height / 2).scale(fitScale));
     }
 
-  }, [family, selectedWord, detailWord, width, height, onSelectMember, onNodeAction]);
+    // Rotation state
+    let currentRotation = 0;
+    const spinG = g.append("g");
 
-  // Always render the SVG so zoom bindings persist.
-  // Overlay the placeholder when there's no family.
+    // Draw arcs
+    const slices = spinG.selectAll(".slice")
+      .data(root.descendants())
+      .join("g")
+      .attr("class", "slice")
+      .style("cursor", "pointer");
+
+    // Root circle
+    slices.filter(d => d.depth === 0)
+      .append("circle").attr("r", R_ROOT)
+      .attr("fill", T.raised).attr("stroke", T.gold)
+      .attr("stroke-width", 2).attr("stroke-opacity", 0.8);
+    slices.filter(d => d.depth === 0)
+      .append("circle").attr("r", R_ROOT + 6)
+      .attr("fill", "none").attr("stroke", T.gold)
+      .attr("stroke-width", 1).attr("stroke-opacity", 0.15);
+
+    // Non-root arcs
+    slices.filter(d => d.depth > 0)
+      .append("path").attr("d", arc)
+      .attr("fill", d => {
+        const clr = POS_CLR[d.data.pos] || T.dim;
+        return d.depth >= 2 ? d3.color(clr).darker(0.8) : d3.color(clr).darker(1.5);
+      })
+      .attr("stroke", T.bg).attr("stroke-width", 1.5).attr("opacity", 0.85);
+
+    // Add a highlight overlay path to each non-root slice (hidden by default)
+    slices.filter(d => d.depth > 0)
+      .append("path").attr("class", "highlight-ring").attr("d", arc)
+      .attr("fill", "none").attr("stroke", T.gold).attr("stroke-width", 3)
+      .attr("opacity", 0)
+      .style("pointer-events", "none");
+
+    // Show highlight on the initially selected word
+    slices.filter(d => d.depth > 0 && d.data.member?.id === selectedWord?.id)
+      .select(".highlight-ring").attr("opacity", 0.9);
+
+    // Tooltip (create early so hover handlers can reference it)
+    const tooltip = d3.select("body").selectAll(".family-tooltip").data([0]).join("div")
+      .attr("class", "family-tooltip")
+      .style("position", "fixed").style("pointer-events", "none")
+      .style("background", T.surface).style("border", `1px solid ${T.border}`)
+      .style("border-radius", "6px").style("padding", "8px 12px")
+      .style("font-size", "13px").style("color", T.bright)
+      .style("display", "none").style("z-index", "999")
+      .style("font-family", T.font);
+
+    // Track which member is currently focused
+    let focusedId = selectedWord?.id || null;
+
+    // Hover + tooltip combined
+    slices.filter(d => d.depth > 0)
+      .on("mouseenter", function(e, d) {
+        if (d.data.member?.id === focusedId) return; // already highlighted
+        d3.select(this).select("path")
+          .transition().duration(100)
+          .attr("opacity", 1).attr("stroke", T.gold).attr("stroke-width", 2);
+      })
+      .on("mousemove", function(e, d) {
+        const posColor = POS_CLR[d.data.pos] || T.dim;
+        tooltip.style("display", "block")
+          .style("left", (e.clientX + 15) + "px")
+          .style("top", (e.clientY - 10) + "px")
+          .html(`<strong>${d.data.lemma}</strong><br>
+            <span style="color:${posColor};font-weight:600">${d.data.pos}</span><br>
+            <em style="color:${T.dim};font-size:11px">${d.data.def || ""}</em>
+            ${d.data.relation ? `<br><span style="color:${T.goldDim};font-size:10px;font-family:${T.mono}">${d.data.relation}</span>` : ""}`);
+      })
+      .on("mouseleave", function(e, d) {
+        if (d.data.member?.id !== focusedId) {
+          d3.select(this).select("path")
+            .transition().duration(150)
+            .attr("opacity", 0.85).attr("stroke", T.bg).attr("stroke-width", 1.5);
+        }
+        tooltip.style("display", "none");
+      });
+
+    // Click — highlight, rotate, and select
+    slices.filter(d => d.depth > 0)
+      .on("click", function(e, d) {
+        e.stopPropagation();
+
+        // Clear all highlights
+        spinG.selectAll(".highlight-ring").attr("opacity", 0);
+        // Reset all arc strokes
+        spinG.selectAll(".slice").select("path")
+          .attr("stroke", T.bg).attr("stroke-width", 1.5).attr("opacity", 0.85);
+
+        // Highlight clicked slice
+        d3.select(this).select(".highlight-ring").attr("opacity", 0.9);
+        focusedId = d.data.member?.id || null;
+
+        // Select the member
+        if (d.data.member) onSelectRef.current(d.data.member);
+
+        const midAngle = (d.x0 + d.x1) / 2;
+        const targetRotation = -(midAngle * 180 / Math.PI) + 90;
+        currentRotation = targetRotation;
+
+        spinG.transition().duration(600).ease(d3.easeCubicInOut)
+          .attr("transform", `rotate(${currentRotation})`);
+
+        spinG.selectAll(".root-text")
+          .transition().duration(600).ease(d3.easeCubicInOut)
+          .attr("transform", `rotate(${-currentRotation})`);
+
+        spinG.selectAll(".arc-label").each(function() {
+          const labelD = d3.select(this).datum();
+          const lMid = (labelD.x0 + labelD.x1) / 2;
+          const lMidR = (innerR(labelD) + outerR(labelD)) / 2;
+          const worldAngle = lMid + currentRotation * Math.PI / 180;
+          const lx = lMidR * Math.sin(lMid);
+          const ly = -lMidR * Math.cos(lMid);
+          const wa = ((worldAngle % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+          const textRot = (lMid * 180 / Math.PI) - 90 + (wa > Math.PI ? 180 : 0);
+          d3.select(this)
+            .transition().duration(600).ease(d3.easeCubicInOut)
+            .attr("transform", `translate(${lx},${ly}) rotate(${textRot})`);
+        });
+      });
+
+    // Context menu
+    slices.filter(d => d.depth > 0)
+      .on("contextmenu", function(e, d) {
+        e.preventDefault(); e.stopPropagation();
+        if (d.data.member && onNodeActionRef.current) onNodeActionRef.current(d.data.member, e.clientX, e.clientY);
+      });
+
+    // Root text
+    const rootG = slices.filter(d => d.depth === 0);
+    const rootTextG = rootG.append("g").attr("class", "root-text");
+    const rFS = Math.min(20, Math.round(R_ROOT * 0.28));
+    rootTextG.append("text")
+      .attr("text-anchor", "middle").attr("y", -rFS)
+      .attr("fill", T.goldDim).attr("font-size", "9px")
+      .attr("font-family", T.mono).attr("letter-spacing", "2px")
+      .text("ROOT");
+    rootTextG.append("text")
+      .attr("text-anchor", "middle").attr("y", rFS * 0.3)
+      .attr("fill", T.bright).attr("font-size", rFS + "px").attr("font-weight", 700)
+      .attr("font-family", T.font).text(rootMember.lemma);
+    rootTextG.append("text")
+      .attr("text-anchor", "middle").attr("y", rFS * 1.2)
+      .attr("fill", POS_CLR[rootMember.pos] || T.dim).attr("font-size", "11px").attr("font-weight", 600)
+      .attr("font-family", T.font).text(rootMember.pos || "");
+    rootTextG.append("text")
+      .attr("text-anchor", "middle").attr("y", rFS * 2)
+      .attr("fill", T.dim).attr("font-size", "9px").attr("font-style", "italic")
+      .attr("font-family", T.font)
+      .text((rootMember.short_def || "").length > 20 ? (rootMember.short_def || "").slice(0, 20) + "…" : (rootMember.short_def || ""));
+
+    // Root click
+    rootG.on("click", (e) => { e.stopPropagation(); onSelectRef.current(rootMember); })
+      .on("contextmenu", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (onNodeActionRef.current) onNodeActionRef.current(rootMember, e.clientX, e.clientY);
+      });
+
+    // Arc labels
+    slices.filter(d => d.depth > 0).each(function(d) {
+      const el = d3.select(this);
+      const midAngle = (d.x0 + d.x1) / 2;
+      const midR = (innerR(d) + outerR(d)) / 2;
+      const arcSpan = d.x1 - d.x0;
+
+      if (arcSpan < 0.04) return;
+
+      const x = midR * Math.sin(midAngle);
+      const y = -midR * Math.cos(midAngle);
+      const rotation = (midAngle * 180 / Math.PI) - 90 + (midAngle > Math.PI ? 180 : 0);
+
+      const textG = el.append("g")
+        .attr("class", "arc-label")
+        .datum(d)
+        .attr("transform", `translate(${x},${y}) rotate(${rotation})`);
+
+      const fontSize = arcSpan > 0.2 ? "13px" : arcSpan > 0.1 ? "11px" : "9px";
+
+      const showDetails = arcSpan > 0.12;
+
+      textG.append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", showDetails ? "-0.3em" : "0.1em")
+        .attr("fill", T.bright).attr("font-size", fontSize).attr("font-weight", 500)
+        .attr("font-family", T.font).text(d.data.lemma);
+
+      if (showDetails) {
+        textG.append("text")
+          .attr("text-anchor", "middle").attr("dy", "1em")
+          .attr("fill", POS_CLR[d.data.pos] || T.dim)
+          .attr("font-size", "9px").attr("font-weight", 600)
+          .attr("font-family", T.font).text(d.data.pos);
+      }
+
+      if (d.data.relation && arcSpan > 0.15) {
+        textG.append("text")
+          .attr("text-anchor", "middle").attr("dy", "2.2em")
+          .attr("fill", T.goldDim).attr("font-size", "7px").attr("font-family", T.mono)
+          .attr("opacity", 0.7).text(d.data.relation);
+      }
+    });
+
+  }, [family, selectedWord, width, height]);
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <svg ref={svgRef} width={width} height={height}
@@ -1289,7 +1305,6 @@ export default function App() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
-  const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst"
   const [vocabLimit, setVocabLimit] = useState(500);
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
@@ -1509,30 +1524,11 @@ export default function App() {
               )}
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
-            borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
-            <span style={{ fontSize: 11, color: T.dim }}>View:</span>
-            {["tree", "sunburst"].map(m => (
-              <button key={m} onClick={() => setVizMode(m)} style={{
-                background: vizMode === m ? T.bright : "transparent",
-                color: vizMode === m ? T.bg : T.dim,
-                border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
-                borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-              }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
-            ))}
-          </div>
           <div style={{ flex: 1, position: "relative" }}>
-            {vizMode === "sunburst" ? (
-              <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
-                onSelectMember={m => setDetailWord(m)}
-                onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
-                width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
-            ) : (
-              <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
-                onSelectMember={m => setDetailWord(m)}
-                onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
-                width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
-            )}
+            <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
+              onSelectMember={m => setDetailWord(m)}
+              onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+              width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
           </div>
         </div>
 
