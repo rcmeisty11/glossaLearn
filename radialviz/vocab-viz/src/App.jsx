@@ -151,24 +151,38 @@ function CollapsiblePanel({ side, label, expandedWidth, children, pinned, onTogg
 function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggleAuthor, onToggleWork }) {
   const [expanded, setExpanded] = useState(new Set());
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("corpus"); // "corpus" | "alpha"
 
   const filtered = useMemo(() => {
-    if (!search) return authors;
-    const q = search.toLowerCase();
-    return authors.filter(a =>
-      a.author.toLowerCase().includes(q) ||
-      (works[a.author] || []).some(w => (w.title || "").toLowerCase().includes(q))
-    );
-  }, [authors, works, search]);
+    let list = authors;
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(a =>
+        a.author.toLowerCase().includes(q) ||
+        (works[a.author] || []).some(w => (w.title || "").toLowerCase().includes(q))
+      );
+    }
+    if (sortBy === "alpha") {
+      list = [...list].sort((a, b) => a.author.localeCompare(b.author));
+    }
+    return list;
+  }, [authors, works, search, sortBy]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-      <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 4 }}>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Filter..."
-          style={{ width: "100%", background: T.surface, border: `1px solid ${T.borderL}`,
+          style={{ flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
             borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
             fontFamily: T.font, outline: "none" }} />
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+          style={{ background: T.surface, border: `1px solid ${T.borderL}`,
+            borderRadius: 4, padding: "4px", color: T.text, fontSize: 12,
+            fontFamily: T.font, cursor: "pointer" }}>
+          <option value="corpus">Size</option>
+          <option value="alpha">A-Z</option>
+        </select>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         {filtered.map(a => {
