@@ -187,34 +187,36 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         {filtered.map(a => {
-          const sel = selectedAuthors.has(a.author);
           const authorWorks = works[a.author] || [];
           const exp = expanded.has(a.author);
+          const selectedCount = authorWorks.filter(w => selectedWorks.has(w.id)).length;
           return (
             <div key={a.author}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", fontSize: 14 }}>
-                <span onClick={() => {
+              <div onClick={() => {
                   const n = new Set(expanded);
                   n.has(a.author) ? n.delete(a.author) : n.add(a.author);
                   setExpanded(n);
-                }} style={{ color: T.dim, fontSize: 11, width: 14, textAlign: "center", cursor: "pointer", flexShrink: 0 }}>
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", fontSize: 16,
+                  cursor: "pointer", userSelect: "none" }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+                <span style={{ color: T.dim, fontSize: 12, width: 14, textAlign: "center", flexShrink: 0 }}>
                   {exp ? "▾" : "▸"}</span>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", flex: 1, minWidth: 0 }}>
-                  <input type="checkbox" checked={sel} onChange={() => onToggleAuthor(a.author)}
-                    style={{ accentColor: T.gold, flexShrink: 0 }} />
-                  <span style={{ color: sel ? T.gold : T.text, fontWeight: sel ? 600 : 400,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.author}</span>
-                </label>
-                <span style={{ color: T.dim, fontSize: 12, fontFamily: T.mono, flexShrink: 0 }}>{a.work_count}</span>
+                <span style={{ color: selectedCount > 0 ? T.gold : T.text, fontWeight: selectedCount > 0 ? 600 : 400,
+                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.author}</span>
+                <span style={{ color: T.dim, fontSize: 13, fontFamily: T.mono, flexShrink: 0 }}>
+                  {selectedCount > 0 ? `${selectedCount}/` : ""}{a.work_count}</span>
               </div>
               {exp && authorWorks.map(w => {
                 const ws = selectedWorks.has(w.id);
                 return (
-                  <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 5,
-                    padding: "2px 8px 2px 32px", cursor: "pointer", fontSize: 13 }}>
-                    <input type="checkbox" checked={ws || sel} disabled={sel}
+                  <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6,
+                    padding: "4px 10px 4px 34px", cursor: "pointer", fontSize: 15 }}>
+                    <input type="checkbox" checked={ws}
                       onChange={() => onToggleWork(w.id)} style={{ accentColor: T.gold, flexShrink: 0 }} />
-                    <span style={{ color: (ws || sel) ? T.bright : T.dim,
+                    <span style={{ color: ws ? T.bright : T.dim,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {w.title || w.work_code}</span>
                   </label>
@@ -277,7 +279,7 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
             onMouseLeave={e => { if (selectedId !== w.id) e.currentTarget.style.background = "transparent"; }}
             style={{
               display: "flex", alignItems: "baseline", gap: 5,
-              padding: "5px 10px", cursor: "pointer", fontSize: 15,
+              padding: "6px 10px", cursor: "pointer", fontSize: 17,
               background: selectedId === w.id ? T.goldGlow : "transparent",
               borderLeft: selectedId === w.id ? `3px solid ${T.gold}` : "3px solid transparent",
             }}>
@@ -286,8 +288,8 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
               fontWeight: selectedId === w.id ? 700 : 400,
               flex: 1, minWidth: 0, wordBreak: "break-word",
             }}>{w.lemma}</span>
-            <span style={{ fontSize: 11, color: POS_CLR[w.pos] || T.dim, flexShrink: 0 }}>{w.pos}</span>
-            <span style={{ fontSize: 12, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>
+            <span style={{ fontSize: 13, color: POS_CLR[w.pos] || T.dim, flexShrink: 0 }}>{w.pos}</span>
+            <span style={{ fontSize: 13, color: T.dim, fontFamily: T.mono, flexShrink: 0 }}>
               {w.work_freq || w.total_occurrences}</span>
           </div>
         ))}
@@ -890,7 +892,7 @@ function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
       <div style={{ fontSize: 11, color: T.goldDim, letterSpacing: 0.5, marginBottom: 4 }}>
         {sentence.work_author}, <em>{sentence.work_title}</em> {sentence.passage && `(${sentence.passage})`}
       </div>
-      <div style={{ fontSize: 15, color: T.bright, fontFamily: T.font, lineHeight: 1.7 }}>
+      <div style={{ fontSize: 19, color: T.bright, fontFamily: T.font, lineHeight: 1.7 }}>
         {sentence.text}
       </div>
       {total > 1 && (
