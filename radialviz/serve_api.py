@@ -465,6 +465,81 @@ def get_lemma_by_name(lemma_text):
 
 
 # ─────────────────────────────────────────────
+# GET /api/lemma/<lemma_id>/sentences
+# Example sentences containing this lemma
+# Query params:
+#   work_id=6    optional: filter to a specific work
+#   offset=0     skip N sentences (for cycling through)
+#   limit=5      max sentences to return (default 5)
+# ─────────────────────────────────────────────
+@app.route("/api/lemma/<int:lemma_id>/sentences")
+def get_lemma_sentences(lemma_id):
+    db = get_db()
+    work_id = request.args.get("work_id", type=int)
+    offset = request.args.get("offset", 0, type=int)
+    limit = request.args.get("limit", 5, type=int)
+    limit = min(limit, 20)
+
+    # Check if sentences table exists
+    table_check = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sentences'"
+    ).fetchone()
+    if not table_check:
+        return jsonify({"sentences": [], "note": "Sentences table not yet built"})
+
+    # Get the lemma text for highlighting
+    lemma_row = db.execute("SELECT lemma FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+    if not lemma_row:
+        return jsonify({"error": "Lemma not found"}), 404
+
+    if work_id:
+        # Get total count for this lemma+work so frontend knows when to wrap
+        total = db.execute("""
+            SELECT COUNT(*) as c FROM sentence_lemmas sl
+            JOIN sentences s ON s.id = sl.sentence_id
+            WHERE sl.lemma_id = ? AND s.work_id = ?
+        """, (lemma_id, work_id)).fetchone()["c"]
+
+        rows = db.execute("""
+            SELECT s.id, s.passage, s.sentence_text, w.title, w.author, w.id as work_id
+            FROM sentence_lemmas sl
+            JOIN sentences s ON s.id = sl.sentence_id
+            JOIN works w ON w.id = s.work_id
+            WHERE sl.lemma_id = ? AND s.work_id = ?
+            ORDER BY s.sentence_pos
+            LIMIT 1 OFFSET ?
+        """, (lemma_id, work_id, offset)).fetchall()
+    else:
+        # One sentence per work (grouped), up to limit works
+        rows = db.execute("""
+            SELECT s.id, s.passage, s.sentence_text, w.title, w.author, w.id as work_id
+            FROM sentence_lemmas sl
+            JOIN sentences s ON s.id = sl.sentence_id
+            JOIN works w ON w.id = s.work_id
+            WHERE sl.lemma_id = ?
+            GROUP BY s.work_id
+            ORDER BY s.sentence_pos
+            LIMIT ?
+        """, (lemma_id, limit)).fetchall()
+
+    sentences = []
+    for r in rows:
+        sentences.append({
+            "id": r["id"],
+            "passage": r["passage"],
+            "text": r["sentence_text"],
+            "work_title": r["title"],
+            "work_author": r["author"],
+            "work_id": r["work_id"],
+        })
+
+    result = {"sentences": sentences, "lemma": lemma_row["lemma"]}
+    if work_id:
+        result["total"] = total
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
 # GET /api/family/<family_id>
 # Full derivational family with all members
 # ─────────────────────────────────────────────
@@ -913,6 +988,115 @@ def merge_families(family_id, other_id):
 
 
 # ─────────────────────────────────────────────
+# POST /api/family/<id>/split/<lemma_id>
+# Split a subtree into a new linked family.
+# Takes the given lemma + all its descendants,
+# moves them to a new family, and links back.
+# ─────────────────────────────────────────────
+@app.route("/api/family/<int:family_id>/split/<int:lemma_id>", methods=["POST"])
+@require_superuser
+def split_to_linked_family(family_id, lemma_id):
+    db = get_write_db()
+
+    # Ensure family_links table exists
+    db.execute("""CREATE TABLE IF NOT EXISTS family_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        family_id_a INTEGER NOT NULL REFERENCES derivational_families(id),
+        family_id_b INTEGER NOT NULL REFERENCES derivational_families(id),
+        link_type TEXT DEFAULT 'related',
+        note TEXT,
+        UNIQUE(family_id_a, family_id_b)
+    )""")
+
+    # Verify the member exists in this family
+    member = db.execute(
+        "SELECT lemma_id, relation, parent_lemma_id FROM lemma_families WHERE family_id = ? AND lemma_id = ?",
+        (family_id, lemma_id),
+    ).fetchone()
+    if not member:
+        return jsonify({"error": "Member not found in this family"}), 404
+
+    # Get lemma info for the new family root
+    lemma_info = db.execute("SELECT lemma, pos FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+    if not lemma_info:
+        return jsonify({"error": "Lemma not found"}), 404
+
+    # Find all descendants of this lemma in the family
+    all_members = db.execute(
+        "SELECT lemma_id, parent_lemma_id FROM lemma_families WHERE family_id = ?",
+        (family_id,),
+    ).fetchall()
+
+    children_of = {}
+    for m in all_members:
+        pid = m["parent_lemma_id"]
+        if pid not in children_of:
+            children_of[pid] = []
+        children_of[pid].append(m["lemma_id"])
+
+    # BFS to collect all descendants
+    subtree_ids = set()
+    stack = [lemma_id]
+    while stack:
+        cur = stack.pop()
+        subtree_ids.add(cur)
+        for child in children_of.get(cur, []):
+            if child not in subtree_ids:
+                stack.append(child)
+
+    # Create new family
+    new_root = lemma_info["lemma"]
+    new_label = f"{new_root} family"
+    cursor = db.execute(
+        "INSERT INTO derivational_families (root, label) VALUES (?, ?)",
+        (new_root, new_label),
+    )
+    new_family_id = cursor.lastrowid
+
+    # Move subtree members to new family
+    for mid in subtree_ids:
+        old = db.execute(
+            "SELECT relation, parent_lemma_id FROM lemma_families WHERE family_id = ? AND lemma_id = ?",
+            (family_id, mid),
+        ).fetchone()
+        if not old:
+            continue
+        # The split root becomes "root" in the new family; keep parent refs for others
+        new_relation = "root" if mid == lemma_id else old["relation"]
+        new_parent = None if mid == lemma_id else old["parent_lemma_id"]
+        # If parent is not in subtree, attach to the new root
+        if new_parent and new_parent not in subtree_ids:
+            new_parent = lemma_id
+
+        db.execute(
+            "INSERT INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?, ?, ?, ?)",
+            (mid, new_family_id, new_relation, new_parent),
+        )
+        db.execute(
+            "DELETE FROM lemma_families WHERE family_id = ? AND lemma_id = ?",
+            (family_id, mid),
+        )
+
+    # Create a link between old and new family
+    a, b = min(family_id, new_family_id), max(family_id, new_family_id)
+    try:
+        db.execute(
+            "INSERT INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?, ?, ?, ?)",
+            (a, b, "related", f"Split from {new_root}"),
+        )
+    except sqlite3.IntegrityError:
+        pass  # link already exists
+
+    log_edit(db, "split_family", family_id, lemma_id, {
+        "new_family_id": new_family_id,
+        "subtree_size": len(subtree_ids),
+    })
+    db.commit()
+
+    return jsonify({"ok": True, "new_family_id": new_family_id})
+
+
+# ─────────────────────────────────────────────
 # PATCH /api/family/<id>/member/<lemma_id>
 # Update a member's relation label
 # Body: { relation }
@@ -945,6 +1129,110 @@ def update_member_relation(family_id, lemma_id):
     db.commit()
 
     return jsonify({"ok": True})
+
+
+# ─────────────────────────────────────────────
+# POST /api/family/<source_id>/move-member/<lemma_id>/to/<target_id>
+# Move a member (and optionally its descendants) from one family to another
+# Body: { new_parent_id, move_descendants (bool, default true) }
+# ─────────────────────────────────────────────
+@app.route("/api/family/<int:source_id>/move-member/<int:lemma_id>/to/<int:target_id>", methods=["POST"])
+@require_superuser
+def move_member_cross_family(source_id, lemma_id, target_id):
+    db = get_write_db()
+    data = request.get_json() or {}
+    new_parent_id = data.get("new_parent_id")
+    move_descendants = data.get("move_descendants", True)
+
+    if source_id == target_id:
+        return jsonify({"error": "Source and target families are the same"}), 400
+
+    # Verify both families exist
+    src = db.execute("SELECT id FROM derivational_families WHERE id = ?", (source_id,)).fetchone()
+    tgt = db.execute("SELECT id FROM derivational_families WHERE id = ?", (target_id,)).fetchone()
+    if not src or not tgt:
+        return jsonify({"error": "One or both families not found"}), 404
+
+    # Verify lemma is in source family
+    member = db.execute(
+        "SELECT lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+        (lemma_id, source_id),
+    ).fetchone()
+    if not member:
+        return jsonify({"error": "Lemma not in source family"}), 404
+
+    # Collect IDs to move
+    ids_to_move = [lemma_id]
+    if move_descendants:
+        # BFS to find all descendants in source family
+        all_members = db.execute(
+            "SELECT lemma_id, parent_lemma_id FROM lemma_families WHERE family_id = ?",
+            (source_id,),
+        ).fetchall()
+        children_of = {}
+        for m in all_members:
+            pid = m["parent_lemma_id"]
+            if pid:
+                children_of.setdefault(pid, []).append(m["lemma_id"])
+        queue = list(children_of.get(lemma_id, []))
+        while queue:
+            cid = queue.pop(0)
+            ids_to_move.append(cid)
+            queue.extend(children_of.get(cid, []))
+
+    # Move each member: delete from source, insert into target
+    for mid in ids_to_move:
+        row = db.execute(
+            "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+            (mid, source_id),
+        ).fetchone()
+        if not row:
+            continue
+
+        # Determine parent in target family
+        if mid == lemma_id:
+            pid = new_parent_id  # the drop target
+        else:
+            # Keep original parent if that parent is also being moved
+            pid = row["parent_lemma_id"] if row["parent_lemma_id"] in ids_to_move else new_parent_id
+
+        # Remove from source
+        db.execute(
+            "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+            (mid, source_id),
+        )
+
+        # Check not already in target
+        existing = db.execute(
+            "SELECT 1 FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+            (mid, target_id),
+        ).fetchone()
+        if not existing:
+            db.execute(
+                "INSERT INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                (mid, target_id, row["relation"], pid),
+            )
+
+    # Clean up empty source family
+    remaining = db.execute(
+        "SELECT COUNT(*) as c FROM lemma_families WHERE family_id = ?", (source_id,)
+    ).fetchone()["c"]
+    source_deleted = False
+    if remaining == 0:
+        db.execute("DELETE FROM derivational_families WHERE id = ?", (source_id,))
+        # Also clean up any family_links referencing the deleted family
+        db.execute("DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?", (source_id, source_id))
+        source_deleted = True
+
+    log_edit(db, "move_member_cross_family", source_id, lemma_id, {
+        "target_family_id": target_id,
+        "new_parent_id": new_parent_id,
+        "ids_moved": ids_to_move,
+        "source_deleted": source_deleted,
+    })
+    db.commit()
+
+    return jsonify({"ok": True, "ids_moved": ids_to_move, "source_deleted": source_deleted})
 
 
 # ─────────────────────────────────────────────
@@ -1029,6 +1317,99 @@ def update_family(family_id):
     return jsonify({"ok": True})
 
 
+# ─────────────────────────────────────────────
+# POST /api/family/<id>/link/<other_id>
+# Create a cross-family link
+# Body: { link_type, note }  (optional)
+# ─────────────────────────────────────────────
+@app.route("/api/family/<int:family_id>/link/<int:other_id>", methods=["POST"])
+@require_superuser
+def create_family_link(family_id, other_id):
+    if family_id == other_id:
+        return jsonify({"error": "Cannot link a family to itself"}), 400
+    db = get_write_db()
+    data = request.get_json() or {}
+    link_type = data.get("link_type", "related")
+    note = data.get("note", "")
+    # Ensure consistent ordering so UNIQUE constraint works
+    a, b = min(family_id, other_id), max(family_id, other_id)
+    try:
+        db.execute(
+            "INSERT INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?, ?, ?, ?)",
+            (a, b, link_type, note),
+        )
+        log_edit(db, "link_families", family_id, None, {"other_id": other_id, "link_type": link_type})
+        db.commit()
+    except sqlite3.IntegrityError:
+        # Link already exists, update it
+        db.execute(
+            "UPDATE family_links SET link_type = ?, note = ? WHERE family_id_a = ? AND family_id_b = ?",
+            (link_type, note, a, b),
+        )
+        db.commit()
+    return jsonify({"ok": True})
+
+
+# ─────────────────────────────────────────────
+# DELETE /api/family/<id>/link/<other_id>
+# Remove a cross-family link
+# ─────────────────────────────────────────────
+@app.route("/api/family/<int:family_id>/link/<int:other_id>", methods=["DELETE"])
+@require_superuser
+def delete_family_link(family_id, other_id):
+    db = get_write_db()
+    a, b = min(family_id, other_id), max(family_id, other_id)
+    db.execute("DELETE FROM family_links WHERE family_id_a = ? AND family_id_b = ?", (a, b))
+    log_edit(db, "unlink_families", family_id, None, {"other_id": other_id})
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ─────────────────────────────────────────────
+# GET /api/family/<id>/linked
+# Get a family plus all linked families
+# ─────────────────────────────────────────────
+@app.route("/api/family/<int:family_id>/linked")
+def get_linked_families(family_id):
+    db = get_db()
+
+    # Find all linked family IDs
+    links = db.execute(
+        """SELECT family_id_a, family_id_b, link_type, note
+           FROM family_links
+           WHERE family_id_a = ? OR family_id_b = ?""",
+        (family_id, family_id),
+    ).fetchall()
+
+    linked = []
+    for row in links:
+        r = row_to_dict(row)
+        other_id = r["family_id_b"] if r["family_id_a"] == family_id else r["family_id_a"]
+        # Get the linked family details + members
+        fam = db.execute(
+            "SELECT id, root, label FROM derivational_families WHERE id = ?",
+            (other_id,),
+        ).fetchone()
+        if not fam:
+            continue
+        fam_dict = row_to_dict(fam)
+        members = rows_to_list(db.execute(
+            """SELECT l.id, l.lemma, l.pos, l.short_def,
+                      l.total_occurrences, lf.relation, lf.parent_lemma_id
+               FROM lemma_families lf
+               JOIN lemmas l ON l.id = lf.lemma_id
+               WHERE lf.family_id = ?
+               ORDER BY l.total_occurrences DESC""",
+            (other_id,),
+        ).fetchall())
+        fam_dict["members"] = members
+        fam_dict["link_type"] = r["link_type"]
+        fam_dict["note"] = r["note"]
+        linked.append(fam_dict)
+
+    return jsonify({"linked_families": linked})
+
+
 # ═══════════════════════════════════════════════════════════════
 # STARTUP
 # ═══════════════════════════════════════════════════════════════
@@ -1053,6 +1434,17 @@ def ensure_schema():
         conn.commit()
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Cross-family links (for multi-root visualization)
+    conn.execute("""CREATE TABLE IF NOT EXISTS family_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        family_id_a INTEGER NOT NULL REFERENCES derivational_families(id),
+        family_id_b INTEGER NOT NULL REFERENCES derivational_families(id),
+        link_type TEXT DEFAULT 'related',
+        note TEXT,
+        UNIQUE(family_id_a, family_id_b)
+    )""")
+    conn.commit()
 
     conn.close()
 
