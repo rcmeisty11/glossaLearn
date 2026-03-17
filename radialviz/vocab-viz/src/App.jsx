@@ -2134,14 +2134,20 @@ export default function App() {
                 background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
                 color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Link Family</button>
+              <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
+            </div>
+          )}
+          {/* Linked families toggle — visible to all users */}
+          {family && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 12px",
+              borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
               <button onClick={() => setShowLinked(v => !v)} style={{
                 background: showLinked ? T.gold : T.raised,
                 border: `1px solid ${showLinked ? T.gold : T.borderL}`, borderRadius: 4, padding: "3px 10px",
                 color: showLinked ? T.bg : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>{showLinked ? "Linked: ON" : "Linked: OFF"}</button>
-              <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
-              <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
+              }}>{showLinked ? "Linked Families: ON" : "Show Linked Families"}</button>
             </div>
           )}
           {hasWorkFilter && (

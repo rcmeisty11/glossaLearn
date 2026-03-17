@@ -50,6 +50,9 @@ CORS(app)  # Allow cross-origin requests from the frontend
 # Superuser mode: enables write endpoints for manual family editing
 SUPERUSER_MODE = os.environ.get("GLOSSALEARN_SUPERUSER", "0") == "1"
 
+# Admin token for remote sync
+ADMIN_TOKEN = os.environ.get("GLOSSALEARN_ADMIN_TOKEN", "")
+
 
 def require_superuser(f):
     """Decorator that gates write endpoints behind superuser mode."""
@@ -1447,6 +1450,193 @@ def ensure_schema():
     conn.commit()
 
     conn.close()
+
+
+# ─────────────────────────────────────────────
+# POST /api/admin/sync
+# Replay edit operations from a local machine
+# Requires GLOSSALEARN_ADMIN_TOKEN header
+# Body: { "edits": [ { action, family_id, lemma_id, detail }, ... ] }
+# ─────────────────────────────────────────────
+@app.route("/api/admin/sync", methods=["POST"])
+def admin_sync():
+    token = request.headers.get("X-Admin-Token", "")
+    if not ADMIN_TOKEN or token != ADMIN_TOKEN:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    edits = data.get("edits", [])
+    if not edits:
+        return jsonify({"error": "No edits provided"}), 400
+
+    db = get_write_db()
+    results = []
+
+    for edit in edits:
+        action = edit.get("action")
+        family_id = edit.get("family_id")
+        lemma_id = edit.get("lemma_id")
+        detail = edit.get("detail", {})
+        if isinstance(detail, str):
+            detail = json.loads(detail)
+
+        try:
+            if action == "update_member":
+                updates, params = [], []
+                if detail.get("relation") is not None:
+                    updates.append("relation = ?")
+                    params.append(detail["relation"])
+                if "parent_lemma_id" in detail:
+                    updates.append("parent_lemma_id = ?")
+                    params.append(detail["parent_lemma_id"])
+                if updates:
+                    params.extend([lemma_id, family_id])
+                    db.execute(
+                        f"UPDATE lemma_families SET {', '.join(updates)} WHERE lemma_id = ? AND family_id = ?",
+                        params,
+                    )
+
+            elif action == "add_member":
+                db.execute(
+                    "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                    (lemma_id, family_id, detail.get("relation", "derived"), detail.get("parent_lemma_id")),
+                )
+
+            elif action == "remove_member":
+                db.execute(
+                    "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                    (lemma_id, family_id),
+                )
+                remaining = db.execute(
+                    "SELECT COUNT(*) as c FROM lemma_families WHERE family_id = ?", (family_id,)
+                ).fetchone()["c"]
+                if remaining == 0:
+                    db.execute("DELETE FROM derivational_families WHERE id = ?", (family_id,))
+
+            elif action == "merge":
+                other_id = detail.get("merged_from")
+                if other_id:
+                    members = db.execute(
+                        "SELECT lemma_id, relation, parent_lemma_id FROM lemma_families WHERE family_id = ?",
+                        (other_id,),
+                    ).fetchall()
+                    for m in members:
+                        existing = db.execute(
+                            "SELECT 1 FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                            (m["lemma_id"], family_id),
+                        ).fetchone()
+                        if not existing:
+                            db.execute(
+                                "INSERT INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                                (m["lemma_id"], family_id, m["relation"], m["parent_lemma_id"]),
+                            )
+                    db.execute("DELETE FROM lemma_families WHERE family_id = ?", (other_id,))
+                    db.execute("DELETE FROM derivational_families WHERE id = ?", (other_id,))
+
+            elif action == "split_family":
+                # Split is complex — replay by creating new family and moving members
+                new_family_id = detail.get("new_family_id")
+                if new_family_id:
+                    # Collect the subtree via BFS
+                    all_members = db.execute(
+                        "SELECT lemma_id, parent_lemma_id, relation FROM lemma_families WHERE family_id = ?",
+                        (family_id,),
+                    ).fetchall()
+                    children_of = {}
+                    for m in all_members:
+                        pid = m["parent_lemma_id"]
+                        if pid:
+                            children_of.setdefault(pid, []).append(m["lemma_id"])
+                    ids_to_move = [lemma_id]
+                    queue = list(children_of.get(lemma_id, []))
+                    while queue:
+                        cid = queue.pop(0)
+                        ids_to_move.append(cid)
+                        queue.extend(children_of.get(cid, []))
+
+                    # Create new family
+                    root_row = db.execute("SELECT lemma FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+                    root_label = root_row["lemma"] if root_row else str(lemma_id)
+                    db.execute(
+                        "INSERT OR IGNORE INTO derivational_families (id, root, label) VALUES (?,?,?)",
+                        (new_family_id, root_label, f"Root: {root_label}"),
+                    )
+                    for mid in ids_to_move:
+                        row = db.execute(
+                            "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                            (mid, family_id),
+                        ).fetchone()
+                        if row:
+                            pid = row["parent_lemma_id"] if row["parent_lemma_id"] in ids_to_move else None
+                            db.execute(
+                                "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                                (mid, new_family_id, row["relation"], pid),
+                            )
+                            db.execute(
+                                "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                                (mid, family_id),
+                            )
+                    # Create link
+                    db.execute(
+                        "INSERT OR IGNORE INTO family_links (family_id_a, family_id_b, link_type) VALUES (?,?,?)",
+                        (family_id, new_family_id, "split"),
+                    )
+
+            elif action == "move_member_cross_family":
+                target_id = detail.get("target_family_id")
+                new_parent = detail.get("new_parent_id")
+                ids_moved = detail.get("ids_moved", [lemma_id])
+                for mid in ids_moved:
+                    row = db.execute(
+                        "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                        (mid, family_id),
+                    ).fetchone()
+                    if row:
+                        pid = new_parent if mid == lemma_id else (row["parent_lemma_id"] if row["parent_lemma_id"] in ids_moved else new_parent)
+                        db.execute("DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?", (mid, family_id))
+                        db.execute(
+                            "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                            (mid, target_id, row["relation"], pid),
+                        )
+                # Clean up empty source
+                remaining = db.execute(
+                    "SELECT COUNT(*) as c FROM lemma_families WHERE family_id = ?", (family_id,)
+                ).fetchone()["c"]
+                if remaining == 0:
+                    db.execute("DELETE FROM derivational_families WHERE id = ?", (family_id,))
+                    db.execute("DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?", (family_id, family_id))
+
+            elif action == "create_link":
+                other_id = detail.get("other_family_id")
+                link_type = detail.get("link_type", "related")
+                note = detail.get("note")
+                if other_id:
+                    db.execute(
+                        "INSERT OR REPLACE INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?,?,?,?)",
+                        (family_id, other_id, link_type, note),
+                    )
+
+            elif action == "remove_link":
+                other_id = detail.get("other_family_id")
+                if other_id:
+                    db.execute(
+                        "DELETE FROM family_links WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
+                        (family_id, other_id, other_id, family_id),
+                    )
+
+            else:
+                results.append({"action": action, "status": "skipped", "reason": "unknown action"})
+                continue
+
+            log_edit(db, action, family_id, lemma_id, detail)
+            results.append({"action": action, "family_id": family_id, "lemma_id": lemma_id, "status": "ok"})
+
+        except Exception as e:
+            results.append({"action": action, "family_id": family_id, "lemma_id": lemma_id, "status": "error", "error": str(e)})
+
+    db.commit()
+    ok_count = sum(1 for r in results if r.get("status") == "ok")
+    return jsonify({"results": results, "synced": ok_count, "total": len(edits)})
 
 
 def main():
