@@ -317,7 +317,7 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
    Selected word highlighted with glow.
    Non-overlapping layout with collision detection.
    ═══════════════════════════════════════════════════ */
-function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, width, height }) {
+function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, onReparent, linkedFamilies, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
 
@@ -473,13 +473,19 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       return 0.0; // hidden — belongs to a different branch
     };
 
+    // Track all drawn node groups for drag-and-drop targeting
+    const drawnNodes = []; // { ng, m, x, y, scale, fId }
+
     // ── Draw a node at given position and scale ──
-    const drawNode = (parent, x, y, m, isRoot, scale) => {
+    const drawNode = (parent, x, y, m, isRoot, scale, fId) => {
       if (scale <= 0) return; // hidden
+      if (!fId) fId = family.id;
 
       const ng = parent.append("g")
         .attr("transform", `translate(${x},${y})`)
         .style("cursor", "pointer");
+
+      drawnNodes.push({ ng, m, x, y, scale, fId });
 
       const clr = POS_CLR[m.pos] || T.dim;
       const isSel = m.id === selectedWord?.id;
@@ -629,22 +635,188 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     // Draw root last (on top)
     drawNode(g, 0, 0, root, true, getNodeScale(root));
 
+    // ── Render linked families ──
+    const linkedOffsets = []; // track bounding for auto-fit
+    if (linkedFamilies && linkedFamilies.length > 0) {
+      // Compute main family's max extent from center
+      let mainMaxR = ring1Radius + nW / 2 + 30;
+      posMap.forEach((pos) => {
+        const dist = Math.sqrt(pos.x * pos.x + pos.y * pos.y) + nW;
+        if (dist > mainMaxR) mainMaxR = dist;
+      });
+
+      linkedFamilies.forEach((lf, li) => {
+        if (!lf.members || lf.members.length === 0) return;
+
+        // Build linked family tree first so we know its size
+        const lMembers = [...lf.members];
+        let lRootIdx = lMembers.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...lMembers.filter(x => x.relation === "root").map(x => x.total_occurrences)));
+        if (lRootIdx < 0) lRootIdx = 0;
+        const lRoot = lMembers[lRootIdx];
+        const lOthers = lMembers.filter((_, i) => i !== lRootIdx);
+
+        const lMemberById = new Map(lMembers.map(m => [m.id, m]));
+        const lChildrenOf = new Map();
+        lOthers.forEach(m => {
+          const pid = (m.parent_lemma_id && lMemberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : lRoot.id;
+          if (!lChildrenOf.has(pid)) lChildrenOf.set(pid, []);
+          lChildrenOf.get(pid).push(m);
+        });
+
+        const lRing1 = lChildrenOf.get(lRoot.id) || [];
+        const lRing1Radius = Math.max(lRing1.length * (nW * 0.3 + gap * 0.6) / (2 * Math.PI), 130);
+
+        // Place linked families to the right, spaced vertically
+        const linkedR = lRing1Radius + nW + 60;
+        const separation = mainMaxR + linkedR + 100;
+        const offsetX = separation;
+        const offsetY = li * (lRing1Radius * 2 + 200) - ((linkedFamilies.length - 1) * (lRing1Radius * 2 + 200)) / 2;
+
+        // Position linked nodes
+        const lPosMap = new Map();
+        lPosMap.set(lRoot.id, { x: offsetX, y: offsetY });
+
+        lRing1.forEach((m, i) => {
+          const angle = (i / lRing1.length) * 2 * Math.PI - Math.PI / 2;
+          lPosMap.set(m.id, { x: offsetX + Math.cos(angle) * lRing1Radius, y: offsetY + Math.sin(angle) * lRing1Radius });
+        });
+
+        // Draw bridge line from main root to linked root
+        g.append("line")
+          .attr("x1", 0).attr("y1", 0)
+          .attr("x2", offsetX).attr("y2", offsetY)
+          .attr("stroke", T.gold).attr("stroke-width", 2)
+          .attr("stroke-dasharray", "8,6").attr("opacity", 0.4);
+
+        // Bridge label
+        const mx = offsetX / 2, my = offsetY / 2;
+        g.append("text").attr("x", mx).attr("y", my - 8)
+          .attr("text-anchor", "middle").attr("fill", T.goldDim)
+          .attr("font-size", "10px").attr("font-family", T.mono)
+          .attr("font-weight", 600).attr("opacity", 0.7)
+          .text(lf.link_type || "related");
+        if (lf.note) {
+          g.append("text").attr("x", mx).attr("y", my + 8)
+            .attr("text-anchor", "middle").attr("fill", T.dim)
+            .attr("font-size", "9px").attr("font-family", T.font)
+            .attr("font-style", "italic").attr("opacity", 0.6)
+            .text(lf.note);
+        }
+
+        // Draw linked connections
+        lOthers.forEach(m => {
+          const pos = lPosMap.get(m.id);
+          if (!pos) return;
+          const pid = (m.parent_lemma_id && lMemberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : lRoot.id;
+          const parentPos = lPosMap.get(pid) || { x: offsetX, y: offsetY };
+
+          g.append("line")
+            .attr("x1", parentPos.x).attr("y1", parentPos.y)
+            .attr("x2", pos.x).attr("y2", pos.y)
+            .attr("stroke", T.border).attr("stroke-width", 0.8)
+            .attr("stroke-dasharray", "4,4").attr("opacity", 0.35);
+        });
+
+        // Draw linked nodes
+        lOthers.forEach(m => {
+          const pos = lPosMap.get(m.id);
+          if (pos) drawNode(g, pos.x, pos.y, m, false, 0.75, lf.id);
+        });
+        // Linked root
+        drawNode(g, offsetX, offsetY, lRoot, true, 0.85, lf.id);
+
+        // Track for auto-fit
+        lPosMap.forEach(pos => linkedOffsets.push(pos));
+      });
+    }
+
+    // ── Drag-and-drop (superuser only) ──
+    // Requires minimum 30px drag distance to prevent accidental reparenting on clicks
+    if (onReparent) {
+      const MIN_DRAG_PX = 30;
+      drawnNodes.forEach(({ ng, m, x, y, fId }) => {
+        let dragLine = null;
+        let startScreenX, startScreenY, dragging = false;
+        ng.call(d3.drag()
+          .on("start", function(event) {
+            event.sourceEvent.stopPropagation();
+            startScreenX = event.sourceEvent.clientX;
+            startScreenY = event.sourceEvent.clientY;
+            dragging = false;
+          })
+          .on("drag", function(event) {
+            const dx = event.sourceEvent.clientX - startScreenX;
+            const dy = event.sourceEvent.clientY - startScreenY;
+            if (!dragging && Math.hypot(dx, dy) < MIN_DRAG_PX) return; // not yet a real drag
+            if (!dragging) {
+              // Start the drag line now
+              dragging = true;
+              const t = d3.zoomTransform(svg.node());
+              dragLine = svg.append("line")
+                .attr("stroke", T.gold).attr("stroke-width", 2)
+                .attr("stroke-dasharray", "6,4").attr("opacity", 0.7)
+                .attr("x1", t.applyX(x)).attr("y1", t.applyY(y))
+                .attr("x2", event.sourceEvent.offsetX).attr("y2", event.sourceEvent.offsetY);
+            }
+            if (dragLine) dragLine.attr("x2", event.sourceEvent.offsetX).attr("y2", event.sourceEvent.offsetY);
+          })
+          .on("end", function(event) {
+            if (dragLine) dragLine.remove();
+            if (!dragging) return; // was just a click, not a drag
+            // Find closest node to drop point
+            const t = d3.zoomTransform(svg.node());
+            const dropX = t.invertX(event.sourceEvent.offsetX);
+            const dropY = t.invertY(event.sourceEvent.offsetY);
+            let closest = null, closestDist = Infinity;
+            drawnNodes.forEach(n => {
+              if (n.m.id === m.id) return;
+              const dist = Math.hypot(n.x - dropX, n.y - dropY);
+              if (dist < closestDist) { closestDist = dist; closest = n; }
+            });
+            if (!closest || closestDist > nW * 1.5) return; // too far — ignore
+
+            const isCross = closest.fId !== fId;
+            const action = isCross ? "Move" : "Reparent";
+            const msg = `${action} "${m.lemma}" → under "${closest.m.lemma}"${isCross ? " (different family)" : ""}?`;
+            if (!window.confirm(msg)) return;
+
+            if (!isCross) {
+              onReparent(m.id, closest.m.id, fId);
+            } else {
+              onReparent(m.id, closest.m.id, fId, closest.fId);
+            }
+          })
+        );
+      });
+    }
+
     // Auto-fit
     if (zoomRef.current) {
       let maxR = ring1Radius + nW / 2 + 30;
       if (focusId) {
-        // Include expanded children in the fit
         posMap.forEach((pos) => {
           const dist = Math.sqrt(pos.x * pos.x + pos.y * pos.y);
           if (dist + nW / 2 + 30 > maxR) maxR = dist + nW / 2 + 30;
         });
       }
-      const fitScale = Math.min(width / (maxR * 2 + 40), height / (maxR * 2 + 40), 1);
-      const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(fitScale);
+      // Include linked families in fit
+      let minX = -maxR, maxX = maxR, minY = -maxR, maxY = maxR;
+      linkedOffsets.forEach(pos => {
+        minX = Math.min(minX, pos.x - nW);
+        maxX = Math.max(maxX, pos.x + nW);
+        minY = Math.min(minY, pos.y - nH);
+        maxY = Math.max(maxY, pos.y + nH);
+      });
+      const totalW = maxX - minX + 80;
+      const totalH = maxY - minY + 80;
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const fitScale = Math.min(width / totalW, height / totalH, 1);
+      const t = d3.zoomIdentity.translate(width / 2 - cx * fitScale, height / 2 - cy * fitScale).scale(fitScale);
       svg.call(zoomRef.current.transform, t);
     }
 
-  }, [family, selectedWord, detailWord, width, height, onSelectMember, onNodeAction]);
+  }, [family, selectedWord, detailWord, linkedFamilies, width, height, onSelectMember, onNodeAction]);
 
   // Always render the SVG so zoom bindings persist.
   // Overlay the placeholder when there's no family.
@@ -659,6 +831,75 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
           <div style={{ color: T.dim, fontSize: 15, fontFamily: T.font }}>
             Select a word to see its derivational family</div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   SENTENCES TAB (inside FormsPanel)
+   ═══════════════════════════════════════════════════ */
+function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
+  const [sentence, setSentence] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+
+  const loadSentence = useCallback((off) => {
+    if (!lemmaId || !activeWorkId) return;
+    setLoading(true);
+    fetch(`${API}/lemma/${lemmaId}/sentences?work_id=${activeWorkId}&limit=1&offset=${off}`)
+      .then(r => r.json())
+      .then(d => {
+        setTotal(d.total || 0);
+        if (d.sentences?.length > 0) { setSentence(d.sentences[0]); setError(null); }
+        else setError("No sentence found for this lemma in the selected work.");
+      })
+      .catch(() => setError("Failed to load sentence."))
+      .finally(() => setLoading(false));
+  }, [lemmaId, activeWorkId]);
+
+  // Auto-load first sentence when lemma or work changes
+  useEffect(() => {
+    setSentence(null);
+    setError(null);
+    setOffset(0);
+    setTotal(0);
+    if (!lemmaId || !activeWorkId) {
+      setError("Select a work on the left to see an example sentence.");
+      return;
+    }
+    loadSentence(0);
+  }, [lemmaId, activeWorkId, loadSentence]);
+
+  const nextSentence = () => {
+    const next = (offset + 1) % total; // cycle back to 0
+    setOffset(next);
+    loadSentence(next);
+  };
+
+  if (loading) return <div style={{ color: T.dim, fontSize: 13, paddingTop: 8 }}>Loading...</div>;
+
+  if (error) return <div style={{ color: T.dim, fontSize: 13, fontStyle: "italic", paddingTop: 8 }}>{error}</div>;
+
+  if (!sentence) return null;
+
+  return (
+    <div style={{ paddingTop: 6 }}>
+      <div style={{ fontSize: 11, color: T.goldDim, letterSpacing: 0.5, marginBottom: 4 }}>
+        {sentence.work_author}, <em>{sentence.work_title}</em> {sentence.passage && `(${sentence.passage})`}
+      </div>
+      <div style={{ fontSize: 15, color: T.bright, fontFamily: T.font, lineHeight: 1.7 }}>
+        {sentence.text}
+      </div>
+      {total > 1 && (
+        <button onClick={nextSentence}
+          style={{ marginTop: 8, padding: "5px 12px", background: T.raised, color: T.gold,
+            border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11, fontFamily: T.font,
+            cursor: "pointer" }}>
+          Another sentence ({offset + 1}/{total})
+        </button>
       )}
     </div>
   );
@@ -702,6 +943,7 @@ function FormsPanel({ lemmaId, workId, scope }) {
     { id: "forms", label: "Forms", n: data.forms?.length || 0 },
     { id: "works", label: "Works", n: data.top_works?.length || 0 },
     { id: "defs", label: "Defs", n: data.definitions?.length || 0 },
+    { id: "sents", label: "Sents" },
   ];
 
   return (
@@ -786,6 +1028,8 @@ function FormsPanel({ lemmaId, workId, scope }) {
             )}
           </div>
         )}
+
+        {tab === "sents" && <SentencesTab lemmaId={lemmaId} lemma={data.lemma} works={data.top_works} activeWorkId={activeWorkId || workId} />}
       </div>
     </div>
   );
@@ -981,12 +1225,14 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
 /* ═══════════════════════════════════════════════════
    SUPERUSER: Node Action Popover
    ═══════════════════════════════════════════════════ */
-function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onDone }) {
+function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y, onClose, onDone }) {
   const [editingRel, setEditingRel] = useState(false);
   const [editingParent, setEditingParent] = useState(false);
   const [relation, setRelation] = useState(member.relation || "derived");
   const [parentLemmaId, setParentLemmaId] = useState(member.parent_lemma_id || "");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmSplit, setConfirmSplit] = useState(false);
+  const [splitting, setSplitting] = useState(false);
 
   const doUpdateRelation = () => {
     fetch(`${API}/family/${familyId}/member/${member.id}`, {
@@ -1009,6 +1255,13 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
       .then(r => { if (r.ok) { onDone(); onClose(); } });
   };
 
+  const doSplit = () => {
+    setSplitting(true);
+    fetch(`${API}/family/${familyId}/split/${member.id}`, { method: "POST" })
+      .then(r => { if (r.ok) { onDone(); onClose(); } else setSplitting(false); })
+      .catch(() => setSplitting(false));
+  };
+
   // Other members this node could derive from (exclude self)
   const parentOptions = (familyMembers || []).filter(m => m.id !== member.id);
 
@@ -1021,7 +1274,7 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
       }}>
         <div style={{ fontSize: 13, color: T.bright, fontWeight: 600, marginBottom: 6 }}>{member.lemma}</div>
 
-        {!editingRel && !editingParent && !confirmRemove && (
+        {!editingRel && !editingParent && !confirmRemove && !confirmSplit && (
           <>
             <button onClick={() => setEditingRel(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
@@ -1043,6 +1296,17 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
                 ? `(${parentOptions.find(m => m.id === member.parent_lemma_id)?.lemma || "..."})`
                 : "(root)"}
             </button>
+            {member.id !== familyRootId && (
+              <button onClick={() => setConfirmSplit(true)} style={{
+                display: "block", width: "100%", textAlign: "left", background: "none",
+                border: "none", padding: "4px 6px", color: T.blue, fontSize: 13,
+                cursor: "pointer", borderRadius: 3,
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                Split to Linked Family
+              </button>
+            )}
             <button onClick={() => setConfirmRemove(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
               border: "none", padding: "4px 6px", color: T.red, fontSize: 13,
@@ -1096,6 +1360,24 @@ function NodeActionPopover({ member, familyId, familyMembers, x, y, onClose, onD
                 color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Remove</button>
               <button onClick={() => setConfirmRemove(false)} style={{
+                flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
+                padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {confirmSplit && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 12, color: T.dim }}>
+              Split <strong>{member.lemma}</strong> and its children into a new linked family?
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={doSplit} disabled={splitting} style={{
+                flex: 1, background: T.blue, border: "none", borderRadius: 3, padding: "4px 0",
+                color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>{splitting ? "Splitting..." : "Split"}</button>
+              <button onClick={() => setConfirmSplit(false)} style={{
                 flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
                 padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
               }}>Cancel</button>
@@ -1271,6 +1553,336 @@ function RenameFamilyModal({ familyId, currentRoot, currentLabel, onClose, onDon
 }
 
 /* ═══════════════════════════════════════════════════
+   SUPERUSER: Link Family Modal
+   Search for another family and create a visual link.
+   ═══════════════════════════════════════════════════ */
+const LINK_TYPES = ["related", "cognate", "compound", "variant", "antonym"];
+
+function LinkFamilyModal({ familyId, familyLabel, onClose, onDone }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [linkType, setLinkType] = useState("related");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const doSearch = useCallback(() => {
+    if (!query.trim()) return;
+    setSearching(true);
+    fetch(`${API}/family/search?q=${encodeURIComponent(query.trim())}&limit=20`)
+      .then(r => r.json()).then(d => {
+        setResults((d.results || []).filter(r => r.id !== familyId));
+        setSearching(false);
+      }).catch(() => setSearching(false));
+  }, [query, familyId]);
+
+  const doLink = useCallback(() => {
+    if (!selected) return;
+    setSaving(true); setError(null);
+    fetch(`${API}/family/${familyId}/link/${selected.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ link_type: linkType, note: note.trim() }),
+    }).then(async r => {
+      if (r.ok) { onDone(); onClose(); }
+      else { const d = await r.json(); setError(d.error || "Link failed"); setSaving(false); }
+    }).catch(() => { setError("Network error"); setSaving(false); });
+  }, [selected, familyId, linkType, note, onDone, onClose]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+        width: 420, maxHeight: "70vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 8px 32px rgba(0,0,0,.5)",
+      }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Link Another Family</span>
+          <button onClick={onClose} style={{ background: "none", border: "none",
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
+        </div>
+        <div style={{ padding: "6px 14px", fontSize: 12, color: T.dim }}>
+          Linking to: <strong style={{ color: T.gold }}>{familyLabel}</strong>
+        </div>
+
+        <div style={{ padding: "8px 14px", display: "flex", gap: 6 }}>
+          <input value={query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && doSearch()}
+            placeholder="Search by root, label, or word..."
+            style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
+              borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
+              fontFamily: T.font, outline: "none" }} autoFocus />
+          <button onClick={doSearch} disabled={searching} style={{
+            background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
+            color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}>Search</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", maxHeight: 250 }}>
+          {results.map(r => (
+            <div key={r.id} onClick={() => { setSelected(r); setError(null); }}
+              style={{
+                padding: "6px 14px", cursor: "pointer", fontSize: 14,
+                background: selected?.id === r.id ? T.goldGlow : "transparent",
+                borderLeft: selected?.id === r.id ? `3px solid ${T.gold}` : "3px solid transparent",
+                display: "flex", alignItems: "baseline", gap: 8,
+              }}>
+              <span style={{ color: selected?.id === r.id ? T.gold : T.bright, fontWeight: 500 }}>{r.label}</span>
+              <span style={{ fontSize: 11, color: T.dim, fontFamily: T.mono }}>{r.member_count} words</span>
+            </div>
+          ))}
+          {searching && <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center" }}>Searching...</div>}
+          {!searching && results.length === 0 && query && (
+            <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center", fontStyle: "italic" }}>
+              No matching families found</div>
+          )}
+        </div>
+
+        {selected && (
+          <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 12, color: T.dim }}>
+              Link <strong style={{ color: T.bright }}>{selected.label}</strong> ({selected.member_count} words) to <strong style={{ color: T.gold }}>{familyLabel}</strong>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Link type</div>
+                <select value={linkType} onChange={e => setLinkType(e.target.value)}
+                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                    borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                  {LINK_TYPES.map(lt => <option key={lt} value={lt}>{lt}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Note (optional)</div>
+                <input value={note} onChange={e => setNote(e.target.value)}
+                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                    borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12,
+                    fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            {error && <div style={{ fontSize: 12, color: T.red }}>{error}</div>}
+            <button onClick={doLink} disabled={saving} style={{
+              background: T.gold, border: "none", borderRadius: 4, padding: "6px 0",
+              color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}>{saving ? "Linking..." : "Link Families"}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   SUPERUSER: Inline Search Bar
+   ═══════════════════════════════════════════════════ */
+function SuperuserSearch({ familyId, familyMembers, onDone }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(null); // word to add
+  const [relation, setRelation] = useState("derived");
+  const [parentLemmaId, setParentLemmaId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [conflict, setConflict] = useState(null);
+  const [mode, setMode] = useState("words"); // "words" | "families"
+  const timerRef = useRef(null);
+  const wrapRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) { setOpen(false); setSelected(null); } };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Debounced search as user types
+  useEffect(() => {
+    clearTimeout(timerRef.current);
+    if (!query.trim()) { setResults([]); return; }
+    timerRef.current = setTimeout(() => {
+      const url = mode === "families"
+        ? `${API}/family/search?q=${encodeURIComponent(query.trim())}&limit=15`
+        : `${API}/search?q=${encodeURIComponent(query.trim())}&limit=15`;
+      fetch(url).then(r => r.json()).then(d => {
+        setResults(d.results || []);
+        setOpen(true);
+      }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(timerRef.current);
+  }, [query, mode]);
+
+  const currentMemberIds = useMemo(() => new Set((familyMembers || []).map(m => m.id)), [familyMembers]);
+
+  const doAdd = () => {
+    if (!selected) return;
+    setSaving(true); setError(null); setConflict(null);
+    const body = { lemma_id: selected.id, relation };
+    if (parentLemmaId) body.parent_lemma_id = parseInt(parentLemmaId);
+    fetch(`${API}/family/${familyId}/add-member`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async r => {
+      const d = await r.json();
+      if (r.ok) { onDone(); setSelected(null); setQuery(""); setOpen(false); }
+      else if (d.conflict) { setConflict(d.conflict); setSaving(false); }
+      else { setError(d.error || "Failed"); setSaving(false); }
+    }).catch(() => { setError("Network error"); setSaving(false); });
+  };
+
+  const doMerge = () => {
+    if (!conflict) return;
+    setSaving(true);
+    fetch(`${API}/family/${familyId}/merge/${conflict.existing_family_id}`, { method: "POST" })
+      .then(async r => {
+        if (r.ok) { onDone(); setSelected(null); setQuery(""); setOpen(false); setConflict(null); }
+        else { setError("Merge failed"); setSaving(false); }
+      }).catch(() => { setError("Network error"); setSaving(false); });
+  };
+
+  const doMergeFamily = (targetFamilyId) => {
+    setSaving(true);
+    fetch(`${API}/family/${familyId}/merge/${targetFamilyId}`, { method: "POST" })
+      .then(async r => {
+        if (r.ok) { onDone(); setSelected(null); setQuery(""); setOpen(false); }
+        else { setError("Merge failed"); setSaving(false); }
+      }).catch(() => { setError("Network error"); setSaving(false); });
+  };
+
+  const parentOptions = (familyMembers || []).filter(m => m.id !== selected?.id);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: 4 }}>
+      {/* Mode toggle */}
+      <select value={mode} onChange={e => { setMode(e.target.value); setResults([]); setSelected(null); }}
+        style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+          padding: "2px 4px", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>
+        <option value="words">Words</option>
+        <option value="families">Families</option>
+      </select>
+
+      {/* Search input */}
+      <input value={query} onChange={e => setQuery(e.target.value)}
+        onFocus={() => { if (results.length > 0) setOpen(true); }}
+        placeholder={mode === "families" ? "Search families..." : "Search words to add..."}
+        style={{ width: 180, background: T.bg, border: `1px solid ${T.borderL}`,
+          borderRadius: 4, padding: "3px 8px", color: T.text, fontSize: 12,
+          fontFamily: T.font, outline: "none" }} />
+
+      {/* Dropdown */}
+      {open && results.length > 0 && !selected && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4,
+          width: 360, maxHeight: 300, overflowY: "auto", zIndex: 1000,
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
+          boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+          {mode === "words" ? results.map(r => {
+            const inFamily = currentMemberIds.has(r.id);
+            return (
+              <div key={r.id} onClick={() => { if (!inFamily) setSelected(r); }}
+                style={{ padding: "6px 12px", cursor: inFamily ? "default" : "pointer",
+                  display: "flex", alignItems: "baseline", gap: 6,
+                  background: inFamily ? "rgba(107,156,107,.08)" : "transparent",
+                  borderBottom: `1px solid ${T.border}` }}
+                onMouseEnter={e => { if (!inFamily) e.currentTarget.style.background = T.hover; }}
+                onMouseLeave={e => { e.currentTarget.style.background = inFamily ? "rgba(107,156,107,.08)" : "transparent"; }}>
+                <span style={{ color: T.bright, fontWeight: 500, fontSize: 14, fontFamily: T.font }}>{r.lemma}</span>
+                <span style={{ color: POS_CLR[r.pos] || T.dim, fontSize: 11, fontWeight: 600 }}>{r.pos}</span>
+                <span style={{ color: T.dim, fontSize: 11, fontStyle: "italic", flex: 1,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(r.short_def || "").slice(0, 40)}</span>
+                {inFamily && <span style={{ color: T.green, fontSize: 10, fontFamily: T.mono }}>IN FAMILY</span>}
+              </div>
+            );
+          }) : results.map(r => (
+            <div key={r.id} style={{ padding: "6px 12px", cursor: "pointer",
+              display: "flex", alignItems: "baseline", gap: 6,
+              borderBottom: `1px solid ${T.border}` }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+              onClick={() => doMergeFamily(r.id)}>
+              <span style={{ color: T.bright, fontWeight: 500, fontSize: 14, fontFamily: T.font }}>{r.label}</span>
+              <span style={{ color: T.dim, fontSize: 11, fontFamily: T.mono }}>{r.member_count} words</span>
+              <span style={{ color: T.gold, fontSize: 10, fontFamily: T.mono, marginLeft: "auto" }}>MERGE</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Selected word — add flow */}
+      {selected && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4,
+          width: 340, zIndex: 1000, background: T.surface,
+          border: `1px solid ${T.border}`, borderRadius: 6, padding: 12,
+          boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+          <div style={{ fontSize: 14, color: T.bright, fontWeight: 600, marginBottom: 8 }}>
+            Add <span style={{ color: T.gold }}>{selected.lemma}</span> ({selected.pos})
+          </div>
+
+          {conflict ? (
+            <div>
+              <div style={{ fontSize: 12, color: T.dim, marginBottom: 6 }}>
+                Already in family "<strong>{conflict.existing_family_label}</strong>".
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={doMerge} disabled={saving} style={{
+                  flex: 1, background: T.gold, border: "none", borderRadius: 4, padding: "5px 0",
+                  color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>Merge Families</button>
+                <button onClick={() => { setConflict(null); setSelected(null); }} style={{
+                  flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                  padding: "5px 0", color: T.text, fontSize: 12, cursor: "pointer",
+                }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Relation</div>
+                  <select value={relation} onChange={e => setRelation(e.target.value)}
+                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                    {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Parent</div>
+                  <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
+                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                    <option value="">Root (direct)</option>
+                    {parentOptions.map(m => (
+                      <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {error && <div style={{ fontSize: 11, color: T.red, marginBottom: 4 }}>{error}</div>}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={doAdd} disabled={saving} style={{
+                  flex: 1, background: T.gold, border: "none", borderRadius: 4, padding: "5px 0",
+                  color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>{saving ? "Adding..." : "Add to Family"}</button>
+                <button onClick={() => { setSelected(null); setError(null); setConflict(null); }} style={{
+                  flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                  padding: "5px 0", color: T.text, fontSize: 12, cursor: "pointer",
+                }}>Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════ */
 export default function App() {
@@ -1287,6 +1899,9 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showLinked, setShowLinked] = useState(false);
+  const [linkedFamilies, setLinkedFamilies] = useState([]);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
   const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst"
@@ -1369,6 +1984,24 @@ export default function App() {
   const familyAll = lemmaDetail?.family || null;
   const bumpFamily = useCallback(() => setFamilyVersion(v => v + 1), []);
 
+  const handleReparent = useCallback((memberId, newParentId, sourceFamilyId, targetFamilyId) => {
+    if (targetFamilyId && targetFamilyId !== sourceFamilyId) {
+      // Cross-family move
+      fetch(`${API}/family/${sourceFamilyId}/move-member/${memberId}/to/${targetFamilyId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_parent_id: newParentId, move_descendants: true }),
+      }).then(r => { if (r.ok) bumpFamily(); });
+    } else {
+      // Same-family reparent
+      fetch(`${API}/family/${sourceFamilyId}/member/${memberId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parent_lemma_id: newParentId }),
+      }).then(r => { if (r.ok) bumpFamily(); });
+    }
+  }, [bumpFamily]);
+
   const vocabIds = useMemo(() => new Set(vocab.map(w => w.id)), [vocab]);
   const hasWorkFilter = selectedAuthors.size > 0 || selectedWorks.size > 0;
   const family = useMemo(() => {
@@ -1378,6 +2011,14 @@ export default function App() {
     if (filtered.length === 0) return familyAll; // fallback if no members match
     return { ...familyAll, members: filtered };
   }, [familyAll, familyScope, hasWorkFilter, vocabIds]);
+
+  // Fetch linked families when showLinked is on
+  useEffect(() => {
+    if (!showLinked || !family?.id) { setLinkedFamilies([]); return; }
+    fetch(`${API}/family/${family.id}/linked`)
+      .then(r => r.json()).then(d => setLinkedFamilies(d.linked_families || []))
+      .catch(() => setLinkedFamilies([]));
+  }, [showLinked, family?.id, familyVersion]);
 
   const togglePos = useCallback(pos => {
     setPosFilter(prev => { const n = new Set(prev); n.has(pos) ? n.delete(pos) : n.add(pos); return n; });
@@ -1487,7 +2128,18 @@ export default function App() {
                 background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
                 color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Rename Root</button>
-              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
+              <button onClick={() => setShowLinkModal(true)} style={{
+                background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>Link Family</button>
+              <button onClick={() => setShowLinked(v => !v)} style={{
+                background: showLinked ? T.gold : T.raised,
+                border: `1px solid ${showLinked ? T.gold : T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                color: showLinked ? T.bg : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>{showLinked ? "Linked: ON" : "Linked: OFF"}</button>
+              <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
             </div>
           )}
           {hasWorkFilter && (
@@ -1526,11 +2178,14 @@ export default function App() {
               <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
                 onSelectMember={m => setDetailWord(m)}
                 onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+                linkedFamilies={showLinked ? linkedFamilies : undefined}
                 width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
             ) : (
               <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
                 onSelectMember={m => setDetailWord(m)}
                 onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+                onReparent={superuser ? handleReparent : undefined}
+                linkedFamilies={showLinked ? linkedFamilies : undefined}
                 width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
             )}
           </div>
@@ -1554,8 +2209,14 @@ export default function App() {
       {nodeAction && family && (
         <NodeActionPopover member={nodeAction.member} familyId={family.id}
           familyMembers={family.members}
+          familyRootId={(() => {
+            const members = family.members || [];
+            const roots = members.filter(m => m.relation === "root");
+            if (roots.length > 0) return roots.reduce((a, b) => (a.total_occurrences || 0) >= (b.total_occurrences || 0) ? a : b).id;
+            return members[0]?.id;
+          })()}
           x={nodeAction.x} y={nodeAction.y}
-          onClose={() => setNodeAction(null)} onDone={bumpFamily} />
+          onClose={() => setNodeAction(null)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
       )}
 
       {/* Superuser: Merge Family Modal */}
@@ -1568,6 +2229,12 @@ export default function App() {
       {showRenameModal && family && (
         <RenameFamilyModal familyId={family.id} currentRoot={family.root} currentLabel={family.label}
           onClose={() => setShowRenameModal(false)} onDone={bumpFamily} />
+      )}
+
+      {/* Superuser: Link Family Modal */}
+      {showLinkModal && family && (
+        <LinkFamilyModal familyId={family.id} familyLabel={family.label}
+          onClose={() => setShowLinkModal(false)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
       )}
     </div>
   );
