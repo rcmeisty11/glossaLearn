@@ -377,20 +377,19 @@ def get_lemma(lemma_id):
         (lemma_id,),
     ).fetchall())
 
-    # Derivational family
+    # Derivational families (a lemma can belong to more than one)
     family = None
-    fam_row = db.execute(
+    all_families = []
+    fam_rows = db.execute(
         """SELECT df.id, df.root, df.label, lf.relation
            FROM lemma_families lf
            JOIN derivational_families df ON df.id = lf.family_id
-           WHERE lf.lemma_id = ?
-           LIMIT 1""",
+           WHERE lf.lemma_id = ?""",
         (lemma_id,),
-    ).fetchone()
+    ).fetchall()
 
-    if fam_row:
+    for fam_row in fam_rows:
         fam_dict = row_to_dict(fam_row)
-        # Get all members of this family
         members = rows_to_list(db.execute(
             """SELECT l.id, l.lemma, l.pos, l.short_def,
                       l.total_occurrences, lf.relation, lf.parent_lemma_id
@@ -400,13 +399,16 @@ def get_lemma(lemma_id):
                ORDER BY l.total_occurrences DESC""",
             (fam_dict["id"],),
         ).fetchall())
-        family = {
+        fam_obj = {
             "id": fam_dict["id"],
             "root": fam_dict["root"],
             "label": fam_dict["label"],
             "relation": fam_dict["relation"],
             "members": members,
         }
+        all_families.append(fam_obj)
+    if all_families:
+        family = all_families[0]
 
     # Top works this lemma appears in
     top_works = rows_to_list(db.execute(
@@ -431,6 +433,7 @@ def get_lemma(lemma_id):
     lemma["forms"] = forms
     lemma["definitions"] = definitions
     lemma["family"] = family
+    lemma["families"] = all_families
     lemma["top_works"] = top_works
     lemma["sample_passages"] = [p["passage"] for p in passages]
 
@@ -813,6 +816,130 @@ def log_edit(db, action, family_id=None, lemma_id=None, detail=None):
 
 
 # ─────────────────────────────────────────────
+# PATCH /api/lemma/<lemma_id>
+# Edit a lemma's short_def, pos, or lsj_def
+# Body: { short_def, pos, lsj_def }
+# ─────────────────────────────────────────────
+@app.route("/api/lemma/<int:lemma_id>", methods=["PATCH"])
+@require_superuser
+def update_lemma(lemma_id):
+    db = get_write_db()
+    data = request.get_json()
+
+    lemma = db.execute("SELECT id FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+    if not lemma:
+        return jsonify({"error": "Lemma not found"}), 404
+
+    updates, params = [], []
+    for field in ("short_def", "pos", "lsj_def"):
+        if field in data:
+            updates.append(f"{field} = ?")
+            params.append(data[field])
+
+    if not updates:
+        return jsonify({"error": "No fields to update"}), 400
+
+    params.append(lemma_id)
+    db.execute(f"UPDATE lemmas SET {', '.join(updates)} WHERE id = ?", params)
+
+    # Also update definitions table short_def if provided
+    if "short_def" in data:
+        existing_def = db.execute(
+            "SELECT id FROM definitions WHERE lemma_id = ? AND source = 'manual'", (lemma_id,)
+        ).fetchone()
+        if existing_def:
+            db.execute(
+                "UPDATE definitions SET short_def = ?, definition = ? WHERE id = ?",
+                (data["short_def"], data["short_def"], existing_def["id"]),
+            )
+        else:
+            db.execute(
+                "INSERT INTO definitions (lemma_id, source, definition, short_def) VALUES (?,?,?,?)",
+                (lemma_id, "manual", data["short_def"], data["short_def"]),
+            )
+
+    log_edit(db, "update_lemma", lemma_id=lemma_id, detail={k: data[k] for k in ("short_def", "pos", "lsj_def") if k in data})
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ─────────────────────────────────────────────
+# POST /api/lemma/<lemma_id>/merge/<other_id>
+# Merge two lemma entries (move all references from other into this one)
+# ─────────────────────────────────────────────
+@app.route("/api/lemma/<int:lemma_id>/merge/<int:other_id>", methods=["POST"])
+@require_superuser
+def merge_lemmas(lemma_id, other_id):
+    db = get_write_db()
+
+    keep = db.execute("SELECT id, lemma FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+    remove = db.execute("SELECT id, lemma FROM lemmas WHERE id = ?", (other_id,)).fetchone()
+    if not keep or not remove:
+        return jsonify({"error": "One or both lemmas not found"}), 404
+    if lemma_id == other_id:
+        return jsonify({"error": "Cannot merge a lemma with itself"}), 400
+
+    # Move forms
+    db.execute("UPDATE OR IGNORE forms SET lemma_id = ? WHERE lemma_id = ?", (lemma_id, other_id))
+    db.execute("DELETE FROM forms WHERE lemma_id = ?", (other_id,))
+
+    # Move occurrences
+    db.execute("UPDATE OR IGNORE occurrences SET lemma_id = ? WHERE lemma_id = ?", (lemma_id, other_id))
+    db.execute("DELETE FROM occurrences WHERE lemma_id = ?", (other_id,))
+
+    # Move work_lemma_counts (sum counts if both exist)
+    other_wlc = db.execute("SELECT work_id, count FROM work_lemma_counts WHERE lemma_id = ?", (other_id,)).fetchall()
+    for row in other_wlc:
+        existing = db.execute(
+            "SELECT count FROM work_lemma_counts WHERE lemma_id = ? AND work_id = ?",
+            (lemma_id, row["work_id"]),
+        ).fetchone()
+        if existing:
+            db.execute(
+                "UPDATE work_lemma_counts SET count = count + ? WHERE lemma_id = ? AND work_id = ?",
+                (row["count"], lemma_id, row["work_id"]),
+            )
+        else:
+            db.execute(
+                "UPDATE work_lemma_counts SET lemma_id = ? WHERE lemma_id = ? AND work_id = ?",
+                (lemma_id, other_id, row["work_id"]),
+            )
+    db.execute("DELETE FROM work_lemma_counts WHERE lemma_id = ?", (other_id,))
+
+    # Move family memberships
+    db.execute("UPDATE OR IGNORE lemma_families SET lemma_id = ? WHERE lemma_id = ?", (lemma_id, other_id))
+    db.execute("DELETE FROM lemma_families WHERE lemma_id = ?", (other_id,))
+
+    # Update parent_lemma_id references
+    db.execute("UPDATE lemma_families SET parent_lemma_id = ? WHERE parent_lemma_id = ?", (lemma_id, other_id))
+
+    # Move definitions
+    db.execute("UPDATE OR IGNORE definitions SET lemma_id = ? WHERE lemma_id = ?", (lemma_id, other_id))
+    db.execute("DELETE FROM definitions WHERE lemma_id = ?", (other_id,))
+
+    # Move sentence_lemmas
+    db.execute("UPDATE OR IGNORE sentence_lemmas SET lemma_id = ? WHERE lemma_id = ?", (lemma_id, other_id))
+    db.execute("DELETE FROM sentence_lemmas WHERE lemma_id = ?", (other_id,))
+
+    # Update total_occurrences on the kept lemma
+    total = db.execute(
+        "SELECT SUM(count) as t FROM work_lemma_counts WHERE lemma_id = ?", (lemma_id,)
+    ).fetchone()["t"] or 0
+    db.execute("UPDATE lemmas SET total_occurrences = ? WHERE id = ?", (total, lemma_id))
+
+    # Delete the merged lemma
+    db.execute("DELETE FROM lemmas WHERE id = ?", (other_id,))
+
+    log_edit(db, "merge_lemmas", lemma_id=lemma_id, detail={
+        "merged_from_id": other_id,
+        "merged_from_lemma": remove["lemma"],
+    })
+    db.commit()
+
+    return jsonify({"ok": True, "kept": lemma_id, "removed": other_id})
+
+
+# ─────────────────────────────────────────────
 # POST /api/family/create
 # Create a new derivational family
 # Body: { root, label, lemma_id, relation }
@@ -886,13 +1013,14 @@ def add_family_member(family_id):
         return jsonify({"error": "Already in this family"}), 409
 
     # Check if in a different family
+    allow_multi = request.args.get("allow_multi") == "1"
     other = db.execute(
         """SELECT lf.family_id, df.label FROM lemma_families lf
            JOIN derivational_families df ON df.id = lf.family_id
            WHERE lf.lemma_id = ?""",
         (lemma_id,),
     ).fetchone()
-    if other:
+    if other and not allow_multi:
         return jsonify({
             "error": "Word belongs to another family",
             "conflict": {
@@ -1376,7 +1504,28 @@ def delete_family_link(family_id, other_id):
 def get_linked_families(family_id):
     db = get_db()
 
-    # Find all linked family IDs
+    seen_ids = {family_id}
+    linked = []
+
+    def fetch_family(fid):
+        fam = db.execute(
+            "SELECT id, root, label FROM derivational_families WHERE id = ?", (fid,),
+        ).fetchone()
+        if not fam:
+            return None
+        fam_dict = row_to_dict(fam)
+        fam_dict["members"] = rows_to_list(db.execute(
+            """SELECT l.id, l.lemma, l.pos, l.short_def,
+                      l.total_occurrences, lf.relation, lf.parent_lemma_id
+               FROM lemma_families lf
+               JOIN lemmas l ON l.id = lf.lemma_id
+               WHERE lf.family_id = ?
+               ORDER BY l.total_occurrences DESC""",
+            (fid,),
+        ).fetchall())
+        return fam_dict
+
+    # 1) Explicit family_links
     links = db.execute(
         """SELECT family_id_a, family_id_b, link_type, note
            FROM family_links
@@ -1384,30 +1533,51 @@ def get_linked_families(family_id):
         (family_id, family_id),
     ).fetchall()
 
-    linked = []
     for row in links:
         r = row_to_dict(row)
         other_id = r["family_id_b"] if r["family_id_a"] == family_id else r["family_id_a"]
-        # Get the linked family details + members
-        fam = db.execute(
-            "SELECT id, root, label FROM derivational_families WHERE id = ?",
-            (other_id,),
-        ).fetchone()
-        if not fam:
+        if other_id in seen_ids:
             continue
-        fam_dict = row_to_dict(fam)
-        members = rows_to_list(db.execute(
-            """SELECT l.id, l.lemma, l.pos, l.short_def,
-                      l.total_occurrences, lf.relation, lf.parent_lemma_id
-               FROM lemma_families lf
-               JOIN lemmas l ON l.id = lf.lemma_id
-               WHERE lf.family_id = ?
-               ORDER BY l.total_occurrences DESC""",
-            (other_id,),
-        ).fetchall())
-        fam_dict["members"] = members
+        seen_ids.add(other_id)
+        fam_dict = fetch_family(other_id)
+        if not fam_dict:
+            continue
         fam_dict["link_type"] = r["link_type"]
         fam_dict["note"] = r["note"]
+        fam_dict["shared_members"] = []
+        linked.append(fam_dict)
+
+    # 2) Families connected through shared members (multi-family words)
+    shared_rows = db.execute(
+        """SELECT lf2.family_id, lf1.lemma_id
+           FROM lemma_families lf1
+           JOIN lemma_families lf2 ON lf2.lemma_id = lf1.lemma_id AND lf2.family_id != lf1.family_id
+           WHERE lf1.family_id = ?""",
+        (family_id,),
+    ).fetchall()
+
+    # Group by target family
+    cross_map = {}  # family_id -> [lemma_id, ...]
+    for r in shared_rows:
+        rd = row_to_dict(r)
+        fid = rd["family_id"]
+        cross_map.setdefault(fid, []).append(rd["lemma_id"])
+
+    for fid, lemma_ids in cross_map.items():
+        # Check if this family was already added via explicit links
+        existing = next((f for f in linked if f["id"] == fid), None)
+        if existing:
+            existing["shared_members"] = lemma_ids
+            continue
+        if fid in seen_ids:
+            continue
+        seen_ids.add(fid)
+        fam_dict = fetch_family(fid)
+        if not fam_dict:
+            continue
+        fam_dict["link_type"] = "shared word"
+        fam_dict["note"] = None
+        fam_dict["shared_members"] = lemma_ids
         linked.append(fam_dict)
 
     return jsonify({"linked_families": linked})

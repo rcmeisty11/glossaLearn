@@ -322,6 +322,8 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
 function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, onReparent, linkedFamilies, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
+  const [expandedCrossIds, setExpandedCrossIds] = useState(new Set()); // member IDs whose linked families are expanded
+  const [showExplicitLinked, setShowExplicitLinked] = useState(false); // root badge: toggle explicit linked families
 
   // Set up D3 zoom — re-run whenever the SVG mounts (always rendered now)
   useEffect(() => {
@@ -475,6 +477,12 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       return 0.0; // hidden — belongs to a different branch
     };
 
+    // Build set of member IDs that belong to other families (for badge icon)
+    const crossFamilyIds = new Set();
+    (linkedFamilies || []).forEach(lf => {
+      (lf.shared_members || []).forEach(id => crossFamilyIds.add(id));
+    });
+
     // Track all drawn node groups for drag-and-drop targeting
     const drawnNodes = []; // { ng, m, x, y, scale, fId }
 
@@ -572,6 +580,51 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
           .attr("font-family", T.mono).text(kidCount);
       }
 
+      // Cross-family badge for members that belong to another family
+      if (crossFamilyIds.has(m.id) && fId === family.id) {
+        const isExpanded = expandedCrossIds.has(m.id);
+        const badge = ng.append("g").style("cursor", "pointer");
+        badge.append("circle").attr("cx", -w/2 - 2).attr("cy", -h/2 - 2)
+          .attr("r", 8).attr("fill", isExpanded ? T.gold : T.blue).attr("opacity", 0.9);
+        badge.append("text").attr("x", -w/2 - 2).attr("y", -h/2 + 2)
+          .attr("text-anchor", "middle").attr("fill", "#fff")
+          .attr("font-size", "10px").attr("font-weight", 700)
+          .attr("font-family", T.mono).text("⟷");
+        badge.on("click", (event) => {
+          event.stopPropagation();
+          setExpandedCrossIds(prev => {
+            const next = new Set(prev);
+            if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
+            return next;
+          });
+        });
+        badge.on("mouseenter", function() {
+          d3.select(this).select("circle").transition().duration(100).attr("r", 10);
+        }).on("mouseleave", function() {
+          d3.select(this).select("circle").transition().duration(100).attr("r", 8);
+        });
+      }
+
+      // Root badge for explicit linked families
+      if (isRoot && (linkedFamilies || []).some(lf => !lf.shared_members || lf.shared_members.length === 0)) {
+        const badge = ng.append("g").style("cursor", "pointer");
+        badge.append("circle").attr("cx", -w/2 - 2).attr("cy", -h/2 - 2)
+          .attr("r", 8).attr("fill", showExplicitLinked ? T.gold : T.blue).attr("opacity", 0.9);
+        badge.append("text").attr("x", -w/2 - 2).attr("y", -h/2 + 2)
+          .attr("text-anchor", "middle").attr("fill", "#fff")
+          .attr("font-size", "10px").attr("font-weight", 700)
+          .attr("font-family", T.mono).text("⟷");
+        badge.on("click", (event) => {
+          event.stopPropagation();
+          setShowExplicitLinked(prev => !prev);
+        });
+        badge.on("mouseenter", function() {
+          d3.select(this).select("circle").transition().duration(100).attr("r", 10);
+        }).on("mouseleave", function() {
+          d3.select(this).select("circle").transition().duration(100).attr("r", 8);
+        });
+      }
+
       ng.on("mouseenter", function() {
         d3.select(this).select("rect").transition().duration(80)
           .attr("stroke", T.gold).attr("stroke-opacity", 1);
@@ -637,9 +690,17 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
     // Draw root last (on top)
     drawNode(g, 0, 0, root, true, getNodeScale(root));
 
-    // ── Render linked families ──
+    // ── Render linked families (only when badge is clicked) ──
     const linkedOffsets = []; // track bounding for auto-fit
-    if (linkedFamilies && linkedFamilies.length > 0) {
+    const activeLinked = (linkedFamilies || []).filter(lf => {
+      // Shared-member families: show if any shared member's badge is expanded
+      if (lf.shared_members && lf.shared_members.length > 0) {
+        return lf.shared_members.some(sid => expandedCrossIds.has(sid));
+      }
+      // Explicit linked families: show via root badge
+      return showExplicitLinked;
+    });
+    if (activeLinked.length > 0) {
       // Compute main family's max extent from center
       let mainMaxR = ring1Radius + nW / 2 + 30;
       posMap.forEach((pos) => {
@@ -647,7 +708,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         if (dist > mainMaxR) mainMaxR = dist;
       });
 
-      linkedFamilies.forEach((lf, li) => {
+      activeLinked.forEach((lf, li) => {
         if (!lf.members || lf.members.length === 0) return;
 
         // Build linked family tree first so we know its size
@@ -668,11 +729,22 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         const lRing1 = lChildrenOf.get(lRoot.id) || [];
         const lRing1Radius = Math.max(lRing1.length * (nW * 0.3 + gap * 0.6) / (2 * Math.PI), 130);
 
-        // Place linked families to the right, spaced vertically
+        // Place linked family in the direction of the shared member relative to center
         const linkedR = lRing1Radius + nW + 60;
         const separation = mainMaxR + linkedR + 100;
-        const offsetX = separation;
-        const offsetY = li * (lRing1Radius * 2 + 200) - ((linkedFamilies.length - 1) * (lRing1Radius * 2 + 200)) / 2;
+        // Find the shared member's position to determine direction
+        let dirAngle = li * (Math.PI * 0.4) - ((activeLinked.length - 1) * Math.PI * 0.2); // fallback spread
+        if (lf.shared_members && lf.shared_members.length > 0) {
+          for (const sid of lf.shared_members) {
+            const sp = posMap.get(sid);
+            if (sp && (sp.x !== 0 || sp.y !== 0)) {
+              dirAngle = Math.atan2(sp.y, sp.x);
+              break;
+            }
+          }
+        }
+        const offsetX = Math.cos(dirAngle) * separation;
+        const offsetY = Math.sin(dirAngle) * separation;
 
         // Position linked nodes
         const lPosMap = new Map();
@@ -683,22 +755,51 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
           lPosMap.set(m.id, { x: offsetX + Math.cos(angle) * lRing1Radius, y: offsetY + Math.sin(angle) * lRing1Radius });
         });
 
-        // Draw bridge line from main root to linked root
-        g.append("line")
-          .attr("x1", 0).attr("y1", 0)
-          .attr("x2", offsetX).attr("y2", offsetY)
-          .attr("stroke", T.gold).attr("stroke-width", 2)
-          .attr("stroke-dasharray", "8,6").attr("opacity", 0.4);
+        // Find shared members: use API-provided shared_members, or detect from overlapping member lists
+        const mainMemberIds = new Set((family.members || []).map(m => m.id));
+        const linkedMemberIds = new Set(lMembers.map(m => m.id));
+        const sharedIds = (lf.shared_members && lf.shared_members.length > 0)
+          ? lf.shared_members.filter(sid => mainMemberIds.has(sid) && linkedMemberIds.has(sid))
+          : lMembers.filter(m => mainMemberIds.has(m.id)).map(m => m.id);
+
+        if (sharedIds.length > 0) {
+          // Draw bridge lines through shared members
+          sharedIds.forEach(sid => {
+            const mainPos = posMap.get(sid);
+            const linkedPos = lPosMap.get(sid);
+            if (!mainPos || !linkedPos) return;
+            g.append("line")
+              .attr("x1", mainPos.x).attr("y1", mainPos.y)
+              .attr("x2", linkedPos.x).attr("y2", linkedPos.y)
+              .attr("stroke", T.gold).attr("stroke-width", 2.5)
+              .attr("stroke-dasharray", "8,6").attr("opacity", 0.6);
+            // Label at midpoint
+            const mx = (mainPos.x + linkedPos.x) / 2, my = (mainPos.y + linkedPos.y) / 2;
+            const sharedMember = lMembers.find(m => m.id === sid);
+            g.append("text").attr("x", mx).attr("y", my - 8)
+              .attr("text-anchor", "middle").attr("fill", T.gold)
+              .attr("font-size", "10px").attr("font-family", T.mono)
+              .attr("font-weight", 700).attr("opacity", 0.8)
+              .text(sharedMember ? sharedMember.lemma : "shared");
+          });
+        } else {
+          // Fallback: bridge from main root to linked root
+          g.append("line")
+            .attr("x1", 0).attr("y1", 0)
+            .attr("x2", offsetX).attr("y2", offsetY)
+            .attr("stroke", T.gold).attr("stroke-width", 2)
+            .attr("stroke-dasharray", "8,6").attr("opacity", 0.4);
+        }
 
         // Bridge label
         const mx = offsetX / 2, my = offsetY / 2;
-        g.append("text").attr("x", mx).attr("y", my - 8)
+        g.append("text").attr("x", mx).attr("y", my - (sharedIds.length > 0 ? 20 : 8))
           .attr("text-anchor", "middle").attr("fill", T.goldDim)
           .attr("font-size", "10px").attr("font-family", T.mono)
           .attr("font-weight", 600).attr("opacity", 0.7)
           .text(lf.link_type || "related");
         if (lf.note) {
-          g.append("text").attr("x", mx).attr("y", my + 8)
+          g.append("text").attr("x", mx).attr("y", my + (sharedIds.length > 0 ? -6 : 8))
             .attr("text-anchor", "middle").attr("fill", T.dim)
             .attr("font-size", "9px").attr("font-family", T.font)
             .attr("font-style", "italic").attr("opacity", 0.6)
@@ -818,7 +919,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       svg.call(zoomRef.current.transform, t);
     }
 
-  }, [family, selectedWord, detailWord, linkedFamilies, width, height, onSelectMember, onNodeAction]);
+  }, [family, selectedWord, detailWord, linkedFamilies, width, height, onSelectMember, onNodeAction, expandedCrossIds, showExplicitLinked]);
 
   // Always render the SVG so zoom bindings persist.
   // Overlay the placeholder when there's no family.
@@ -1230,8 +1331,19 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
 function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y, onClose, onDone }) {
   const [editingRel, setEditingRel] = useState(false);
   const [editingParent, setEditingParent] = useState(false);
+  const [editingDef, setEditingDef] = useState(false);
+  const [mergingLemma, setMergingLemma] = useState(false);
+  const [addingToFamily, setAddingToFamily] = useState(false);
   const [relation, setRelation] = useState(member.relation || "derived");
   const [parentLemmaId, setParentLemmaId] = useState(member.parent_lemma_id || "");
+  const [shortDef, setShortDef] = useState(member.short_def || "");
+  const [pos, setPos] = useState(member.pos || "");
+  const [mergeSearch, setMergeSearch] = useState("");
+  const [mergeResults, setMergeResults] = useState([]);
+  const [mergeTarget, setMergeTarget] = useState(null);
+  const [familySearch, setFamilySearch] = useState("");
+  const [familySearchResults, setFamilySearchResults] = useState([]);
+  const [targetFamily, setTargetFamily] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmSplit, setConfirmSplit] = useState(false);
   const [splitting, setSplitting] = useState(false);
@@ -1264,6 +1376,48 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
       .catch(() => setSplitting(false));
   };
 
+  const doUpdateDef = () => {
+    fetch(`${API}/lemma/${member.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ short_def: shortDef, pos }),
+    }).then(r => { if (r.ok) { onDone(); onClose(); } });
+  };
+
+  const doMergeSearch = (q) => {
+    setMergeSearch(q);
+    if (q.trim().length < 2) { setMergeResults([]); return; }
+    fetch(`${API}/search?q=${encodeURIComponent(q.trim())}&limit=10`)
+      .then(r => r.json())
+      .then(d => setMergeResults((d.results || []).filter(r => r.id !== member.id)))
+      .catch(() => setMergeResults([]));
+  };
+
+  const doMergeLemma = () => {
+    if (!mergeTarget) return;
+    if (!window.confirm(`Merge "${mergeTarget.lemma}" (id:${mergeTarget.id}) INTO "${member.lemma}" (id:${member.id})? This will delete "${mergeTarget.lemma}" and move all its forms/occurrences.`)) return;
+    fetch(`${API}/lemma/${member.id}/merge/${mergeTarget.id}`, { method: "POST" })
+      .then(r => { if (r.ok) { onDone(); onClose(); } });
+  };
+
+  const doFamilySearch = (q) => {
+    setFamilySearch(q);
+    if (q.trim().length < 2) { setFamilySearchResults([]); return; }
+    fetch(`${API}/family/search?q=${encodeURIComponent(q.trim())}&limit=10`)
+      .then(r => r.json())
+      .then(d => setFamilySearchResults((d.results || []).filter(r => r.id !== familyId)))
+      .catch(() => setFamilySearchResults([]));
+  };
+
+  const doAddToFamily = () => {
+    if (!targetFamily) return;
+    fetch(`${API}/family/${targetFamily.id}/add-member?allow_multi=1`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lemma_id: member.id, relation: "derived" }),
+    }).then(r => { if (r.ok) { onDone(); onClose(); } });
+  };
+
   // Other members this node could derive from (exclude self)
   const parentOptions = (familyMembers || []).filter(m => m.id !== member.id);
 
@@ -1276,8 +1430,17 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
       }}>
         <div style={{ fontSize: 13, color: T.bright, fontWeight: 600, marginBottom: 6 }}>{member.lemma}</div>
 
-        {!editingRel && !editingParent && !confirmRemove && !confirmSplit && (
+        {!editingRel && !editingParent && !editingDef && !mergingLemma && !addingToFamily && !confirmRemove && !confirmSplit && (
           <>
+            <button onClick={() => setEditingDef(true)} style={{
+              display: "block", width: "100%", textAlign: "left", background: "none",
+              border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
+              cursor: "pointer", borderRadius: 3,
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = T.hover}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}>
+              Edit Definition
+            </button>
             <button onClick={() => setEditingRel(true)} style={{
               display: "block", width: "100%", textAlign: "left", background: "none",
               border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
@@ -1297,6 +1460,24 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
               Change Parent {member.parent_lemma_id
                 ? `(${parentOptions.find(m => m.id === member.parent_lemma_id)?.lemma || "..."})`
                 : "(root)"}
+            </button>
+            <button onClick={() => setMergingLemma(true)} style={{
+              display: "block", width: "100%", textAlign: "left", background: "none",
+              border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
+              cursor: "pointer", borderRadius: 3,
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = T.hover}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}>
+              Merge Duplicate Lemma
+            </button>
+            <button onClick={() => setAddingToFamily(true)} style={{
+              display: "block", width: "100%", textAlign: "left", background: "none",
+              border: "none", padding: "4px 6px", color: T.text, fontSize: 13,
+              cursor: "pointer", borderRadius: 3,
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = T.hover}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}>
+              Add to Another Family
             </button>
             {member.id !== familyRootId && (
               <button onClick={() => setConfirmSplit(true)} style={{
@@ -1380,6 +1561,107 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
                 color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>{splitting ? "Splitting..." : "Split"}</button>
               <button onClick={() => setConfirmSplit(false)} style={{
+                flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
+                padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {editingDef && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 12, color: T.dim }}>Definition:</div>
+            <input value={shortDef} onChange={e => setShortDef(e.target.value)}
+              placeholder="Short definition"
+              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+            <div style={{ fontSize: 12, color: T.dim }}>POS:</div>
+            <input value={pos} onChange={e => setPos(e.target.value)}
+              placeholder="Part of speech"
+              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={doUpdateDef} style={{
+                flex: 1, background: T.gold, border: "none", borderRadius: 3, padding: "4px 0",
+                color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>Save</button>
+              <button onClick={() => setEditingDef(false)} style={{
+                flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
+                padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {mergingLemma && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 12, color: T.dim }}>Search for duplicate lemma to merge into <strong>{member.lemma}</strong>:</div>
+            <input value={mergeSearch} onChange={e => doMergeSearch(e.target.value)}
+              placeholder="Type lemma to search..."
+              autoFocus
+              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+            {mergeResults.length > 0 && (
+              <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
+                borderRadius: 3, background: T.bg }}>
+                {mergeResults.map(r => (
+                  <div key={r.id} onClick={() => setMergeTarget(r)}
+                    style={{ padding: "3px 6px", fontSize: 12, cursor: "pointer",
+                      color: mergeTarget?.id === r.id ? T.gold : T.text,
+                      background: mergeTarget?.id === r.id ? T.hover : "none",
+                    }}
+                    onMouseEnter={e => { if (mergeTarget?.id !== r.id) e.currentTarget.style.background = T.hover; }}
+                    onMouseLeave={e => { if (mergeTarget?.id !== r.id) e.currentTarget.style.background = "none"; }}>
+                    {r.lemma} <span style={{ color: T.dim }}>({r.pos || "?"}) — {r.short_def || "no def"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={doMergeLemma} disabled={!mergeTarget} style={{
+                flex: 1, background: mergeTarget ? T.red : T.raised, border: "none", borderRadius: 3,
+                padding: "4px 0", color: mergeTarget ? "#fff" : T.dim, fontSize: 12, fontWeight: 600,
+                cursor: mergeTarget ? "pointer" : "default",
+              }}>Merge</button>
+              <button onClick={() => { setMergingLemma(false); setMergeSearch(""); setMergeResults([]); setMergeTarget(null); }} style={{
+                flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
+                padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {addingToFamily && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 12, color: T.dim }}>Add <strong>{member.lemma}</strong> to another family:</div>
+            <input value={familySearch} onChange={e => doFamilySearch(e.target.value)}
+              placeholder="Search families by root..."
+              autoFocus
+              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+            {familySearchResults.length > 0 && (
+              <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
+                borderRadius: 3, background: T.bg }}>
+                {familySearchResults.map(r => (
+                  <div key={r.id} onClick={() => setTargetFamily(r)}
+                    style={{ padding: "3px 6px", fontSize: 12, cursor: "pointer",
+                      color: targetFamily?.id === r.id ? T.gold : T.text,
+                      background: targetFamily?.id === r.id ? T.hover : "none",
+                    }}
+                    onMouseEnter={e => { if (targetFamily?.id !== r.id) e.currentTarget.style.background = T.hover; }}
+                    onMouseLeave={e => { if (targetFamily?.id !== r.id) e.currentTarget.style.background = "none"; }}>
+                    {r.label || r.root} <span style={{ color: T.dim }}>({r.member_count || "?"} members)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={doAddToFamily} disabled={!targetFamily} style={{
+                flex: 1, background: targetFamily ? T.blue : T.raised, border: "none", borderRadius: 3,
+                padding: "4px 0", color: targetFamily ? "#fff" : T.dim, fontSize: 12, fontWeight: 600,
+                cursor: targetFamily ? "pointer" : "default",
+              }}>Add</button>
+              <button onClick={() => { setAddingToFamily(false); setFamilySearch(""); setFamilySearchResults([]); setTargetFamily(null); }} style={{
                 flex: 1, background: T.raised, border: `1px solid ${T.border}`, borderRadius: 3,
                 padding: "4px 0", color: T.text, fontSize: 12, cursor: "pointer",
               }}>Cancel</button>
@@ -1902,7 +2184,6 @@ export default function App() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
-  const [showLinked, setShowLinked] = useState(false);
   const [linkedFamilies, setLinkedFamilies] = useState([]);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
@@ -1986,6 +2267,7 @@ export default function App() {
   const familyAll = lemmaDetail?.family || null;
   const bumpFamily = useCallback(() => setFamilyVersion(v => v + 1), []);
 
+
   const handleReparent = useCallback((memberId, newParentId, sourceFamilyId, targetFamilyId) => {
     if (targetFamilyId && targetFamilyId !== sourceFamilyId) {
       // Cross-family move
@@ -2014,13 +2296,13 @@ export default function App() {
     return { ...familyAll, members: filtered };
   }, [familyAll, familyScope, hasWorkFilter, vocabIds]);
 
-  // Fetch linked families when showLinked is on
+  // Always fetch linked families (includes both explicit links and shared-member families)
   useEffect(() => {
-    if (!showLinked || !family?.id) { setLinkedFamilies([]); return; }
+    if (!family?.id) { setLinkedFamilies([]); return; }
     fetch(`${API}/family/${family.id}/linked`)
       .then(r => r.json()).then(d => setLinkedFamilies(d.linked_families || []))
       .catch(() => setLinkedFamilies([]));
-  }, [showLinked, family?.id, familyVersion]);
+  }, [family?.id, familyVersion]);
 
   const togglePos = useCallback(pos => {
     setPosFilter(prev => { const n = new Set(prev); n.has(pos) ? n.delete(pos) : n.add(pos); return n; });
@@ -2139,17 +2421,6 @@ export default function App() {
               <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
             </div>
           )}
-          {/* Linked families toggle — visible to all users */}
-          {family && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 12px",
-              borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
-              <button onClick={() => setShowLinked(v => !v)} style={{
-                background: showLinked ? T.gold : T.raised,
-                border: `1px solid ${showLinked ? T.gold : T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: showLinked ? T.bg : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>{showLinked ? "Linked Families: ON" : "Show Linked Families"}</button>
-            </div>
-          )}
           {hasWorkFilter && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
               borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
@@ -2186,14 +2457,14 @@ export default function App() {
               <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
                 onSelectMember={m => setDetailWord(m)}
                 onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
-                linkedFamilies={showLinked ? linkedFamilies : undefined}
+                linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                 width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
             ) : (
               <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
                 onSelectMember={m => setDetailWord(m)}
                 onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
                 onReparent={superuser ? handleReparent : undefined}
-                linkedFamilies={showLinked ? linkedFamilies : undefined}
+                linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                 width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
             )}
           </div>
