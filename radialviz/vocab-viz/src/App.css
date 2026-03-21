@@ -38,3 +38,7 @@
 .read-the-docs {
   color: #888;
 }
+
+.hover-color:hover {
+  background-color: rgb(45, 45, 45);
+}
