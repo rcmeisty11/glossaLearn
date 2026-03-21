@@ -14,4 +14,4 @@ ENV DB_PATH=/data/greek_vocab.db
 EXPOSE 8080
 
 # Run with gunicorn for production (4 workers, read-only DB is safe for concurrency)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "serve_api:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "--graceful-timeout", "3", "serve_api:app"]

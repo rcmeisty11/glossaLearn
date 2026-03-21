@@ -87,6 +87,14 @@ def format_edit(row):
     elif action == "move_member_cross_family":
         return f"[{ts}] MOVE lemma {lid} from family {fid} → family {detail.get('target_family_id')} (parent: {detail.get('new_parent_id')})"
 
+    elif action == "update_family":
+        parts = []
+        if detail.get("root"):
+            parts.append(f"root → {detail['root']}")
+        if detail.get("label"):
+            parts.append(f"label → {detail['label']}")
+        return f"[{ts}] UPDATE family {fid}: {', '.join(parts)}"
+
     elif action == "create_link":
         return f"[{ts}] LINK family {fid} ↔ family {detail.get('other_family_id')} ({detail.get('link_type', 'related')})"
 

@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 import * as d3 from "d3";
 import FamilyTreeSunburst from "./FamilyTreeSunburst.jsx";
 
-const API = import.meta.env.PROD ? "https://api.glossalearn.com/api" : "http://127.0.0.1:5000/api";
+const API = import.meta.env.PROD ? "https://apiaws.glossalearn.com/api" : "http://127.0.0.1:5000/api";
 
 const T = {
   bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
-  hover:"#2a2722", border:"#302c25", borderL:"#3d372e",
+  hover:"#2f2d28", border:"#302c25", borderL:"#3d372e",
   text:"#c8bfa8", dim:"#8a7f6e", bright:"#efe6d0",
   gold:"#d4a843", goldDim:"#a68432", goldGlow:"rgba(212,168,67,0.10)",
   red:"#c4574a", blue:"#5a8fb4", green:"#6b9c6b",

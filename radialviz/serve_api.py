@@ -1776,6 +1776,21 @@ def admin_sync():
                     db.execute("DELETE FROM derivational_families WHERE id = ?", (family_id,))
                     db.execute("DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?", (family_id, family_id))
 
+            elif action == "update_family":
+                updates, params = [], []
+                if detail.get("root") is not None:
+                    updates.append("root = ?")
+                    params.append(detail["root"])
+                if detail.get("label") is not None:
+                    updates.append("label = ?")
+                    params.append(detail["label"])
+                if updates:
+                    params.append(family_id)
+                    db.execute(
+                        f"UPDATE derivational_families SET {', '.join(updates)} WHERE id = ?",
+                        params,
+                    )
+
             elif action == "create_link":
                 other_id = detail.get("other_family_id")
                 link_type = detail.get("link_type", "related")

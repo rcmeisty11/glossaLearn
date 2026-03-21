@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
 
-const API = import.meta.env.PROD ? "https://api.glossalearn.com/api" : "http://127.0.0.1:5000/api";
+const API = import.meta.env.PROD ? "https://apisaws.glossalearn.com/api" : "http://127.0.0.1:5000/api";
 
 const T = {
   bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
