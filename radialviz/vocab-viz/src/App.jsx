@@ -1,33 +1,40 @@
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
 import FamilyTreeSunburst from "./FamilyTreeSunburst.jsx";
+import './App.css';
+
+
+
+import Flashcard from './components/flashcard';
+import Perception from './components/perception';
+import { ReactMediaRecorder } from "react-media-recorder";
 
 const API = import.meta.env.PROD ? "https://api.glossalearn.com/api" : "http://127.0.0.1:5000/api";
 
 const T = {
-  bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
-  hover:"#2a2722", border:"#302c25", borderL:"#3d372e",
-  text:"#c8bfa8", dim:"#8a7f6e", bright:"#efe6d0",
-  gold:"#d4a843", goldDim:"#a68432", goldGlow:"rgba(212,168,67,0.10)",
-  red:"#c4574a", blue:"#5a8fb4", green:"#6b9c6b",
-  purple:"#8b6fa8", teal:"#5a9e94", orange:"#c4864a",
-  rose:"#b4697a", cyan:"#5aafb4",
-  font:"'EB Garamond',Georgia,serif",
-  mono:"'JetBrains Mono',monospace",
+  bg: "#0e0d0b", surface: "#1a1815", raised: "#211f1a",
+  hover: "#2a2722", border: "#302c25", borderL: "#3d372e",
+  text: "#c8bfa8", dim: "#8a7f6e", bright: "#efe6d0",
+  gold: "#d4a843", goldDim: "#a68432", goldGlow: "rgba(212,168,67,0.10)",
+  red: "#c4574a", blue: "#5a8fb4", green: "#6b9c6b",
+  purple: "#8b6fa8", teal: "#5a9e94", orange: "#c4864a",
+  rose: "#b4697a", cyan: "#5aafb4",
+  font: "'EB Garamond',Georgia,serif",
+  mono: "'JetBrains Mono',monospace",
   // Font size scale — bump everything up for readability
   xs: 13, sm: 14, md: 16, lg: 18, xl: 26,
 };
 const POS_CLR = {
-  noun:T.gold, verb:T.blue, adjective:T.green, adverb:T.purple,
-  pronoun:T.teal, preposition:T.orange, conjunction:T.rose,
-  particle:T.cyan, article:T.dim, "":T.dim,
+  noun: T.gold, verb: T.blue, adjective: T.green, adverb: T.purple,
+  pronoun: T.teal, preposition: T.orange, conjunction: T.rose,
+  particle: T.cyan, article: T.dim, "": T.dim,
 };
 
 /* ═══════════════════════════════════════════════════
    GLOBAL LOADING BAR
    Thin animated gold bar at top of viewport.
    ═══════════════════════════════════════════════════ */
-const LoadingContext = createContext({ start: () => {}, stop: () => {} });
+const LoadingContext = createContext({ start: () => { }, stop: () => { } });
 
 function useLoadingTracker() {
   const countRef = useRef(0);
@@ -77,7 +84,7 @@ function useApi(url, loadingCtx) {
     setLoading(true);
     if (loadingCtx) loadingCtx.start();
     fetch(url).then(r => r.json()).then(d => { if (!c) setData(d); })
-      .catch(() => {}).finally(() => {
+      .catch(() => { }).finally(() => {
         if (!c) setLoading(false);
         if (loadingCtx) loadingCtx.stop();
       });
@@ -174,13 +181,17 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
       <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 4 }}>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Filter..."
-          style={{ flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
+          style={{
+            flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
             borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
-            fontFamily: T.font, outline: "none" }} />
+            fontFamily: T.font, outline: "none"
+          }} />
         <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-          style={{ background: T.surface, border: `1px solid ${T.borderL}`,
+          style={{
+            background: T.surface, border: `1px solid ${T.borderL}`,
             borderRadius: 4, padding: "4px", color: T.text, fontSize: 12,
-            fontFamily: T.font, cursor: "pointer" }}>
+            fontFamily: T.font, cursor: "pointer"
+          }}>
           <option value="corpus">Size</option>
           <option value="alpha">A-Z</option>
         </select>
@@ -193,18 +204,22 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
           return (
             <div key={a.author}>
               <div onClick={() => {
-                  const n = new Set(expanded);
-                  n.has(a.author) ? n.delete(a.author) : n.add(a.author);
-                  setExpanded(n);
+                const n = new Set(expanded);
+                n.has(a.author) ? n.delete(a.author) : n.add(a.author);
+                setExpanded(n);
+              }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", fontSize: 16,
+                  cursor: "pointer", userSelect: "none"
                 }}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", fontSize: 16,
-                  cursor: "pointer", userSelect: "none" }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
                 <span style={{ color: T.dim, fontSize: 12, width: 14, textAlign: "center", flexShrink: 0 }}>
                   {exp ? "▾" : "▸"}</span>
-                <span style={{ color: selectedCount > 0 ? T.gold : T.text, fontWeight: selectedCount > 0 ? 600 : 400,
-                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{
+                  color: selectedCount > 0 ? T.gold : T.text, fontWeight: selectedCount > 0 ? 600 : 400,
+                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                }}>
                   {a.author}</span>
                 <span style={{ color: T.dim, fontSize: 13, fontFamily: T.mono, flexShrink: 0 }}>
                   {selectedCount > 0 ? `${selectedCount}/` : ""}{a.work_count}</span>
@@ -212,12 +227,16 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
               {exp && authorWorks.map(w => {
                 const ws = selectedWorks.has(w.id);
                 return (
-                  <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 6,
-                    padding: "4px 10px 4px 34px", cursor: "pointer", fontSize: 15 }}>
+                  <label key={w.id} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "4px 10px 4px 34px", cursor: "pointer", fontSize: 15
+                  }}>
                     <input type="checkbox" checked={ws}
                       onChange={() => onToggleWork(w.id)} style={{ accentColor: T.gold, flexShrink: 0 }} />
-                    <span style={{ color: ws ? T.bright : T.dim,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{
+                      color: ws ? T.bright : T.dim,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                    }}>
                       {w.title || w.work_code}</span>
                   </label>
                 );
@@ -235,26 +254,38 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
    ═══════════════════════════════════════════════════ */
 const POS_LIST = ["noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction", "particle", "article"];
 
+function StyledInput({ searchQ, onSearchChange, placeholder }) {
+  return (
+    <input value={searchQ} onChange={e => onSearchChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
+        borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
+        fontFamily: T.font, outline: "none"
+      }} />
+  )
+}
+
 function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, onSearchChange, loading, posFilter, onPosFilterChange, totalCount, canLoadMore, onLoadMore }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
       <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 4 }}>
-        <input value={searchQ} onChange={e => onSearchChange(e.target.value)}
-          placeholder="Search..."
-          style={{ flex: 1, background: T.surface, border: `1px solid ${T.borderL}`,
-            borderRadius: 4, padding: "4px 7px", color: T.text, fontSize: 14,
-            fontFamily: T.font, outline: "none" }} />
+        <StyledInput placeholder={"Search..."} searchQ={searchQ} onSearchChange={onSearchChange} />
         <select value={sort} onChange={e => onSortChange(e.target.value)}
-          style={{ background: T.surface, border: `1px solid ${T.borderL}`,
+          style={{
+            background: T.surface, border: `1px solid ${T.borderL}`,
             borderRadius: 4, padding: "4px", color: T.text, fontSize: 12,
-            fontFamily: T.font, cursor: "pointer" }}>
+            fontFamily: T.font, cursor: "pointer"
+          }}>
           <option value="frequency">Freq</option>
           <option value="alpha">A-Z</option>
         </select>
       </div>
       {/* POS filter chips */}
-      <div style={{ padding: "4px 8px", borderBottom: `1px solid ${T.border}`,
-        display: "flex", flexWrap: "wrap", gap: 3 }}>
+      <div style={{
+        padding: "4px 8px", borderBottom: `1px solid ${T.border}`,
+        display: "flex", flexWrap: "wrap", gap: 3
+      }}>
         {POS_LIST.map(pos => {
           const active = posFilter.has(pos);
           const clr = POS_CLR[pos] || T.dim;
@@ -283,7 +314,8 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
               background: selectedId === w.id ? T.goldGlow : "transparent",
               borderLeft: selectedId === w.id ? `3px solid ${T.gold}` : "3px solid transparent",
             }}>
-            <span style={{ fontFamily: T.font,
+            <span style={{
+              fontFamily: T.font,
               color: selectedId === w.id ? T.gold : T.bright,
               fontWeight: selectedId === w.id ? 700 : 400,
               flex: 1, minWidth: 0, wordBreak: "break-word",
@@ -298,8 +330,10 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
             Select works to see vocabulary</div>
         )}
       </div>
-      <div style={{ padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.dim, flexShrink: 0,
-        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{
+        padding: "4px 10px", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.dim, flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "space-between"
+      }}>
         <span>{vocab.length}{totalCount > vocab.length ? ` of ${totalCount}` : ""} words</span>
         {canLoadMore && (
           <button onClick={onLoadMore} style={{
@@ -526,17 +560,17 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
 
       // Full node rendering (scaled)
       if (isSel) {
-        ng.append("rect").attr("x", -w/2 - 6).attr("y", -h/2 - 6)
+        ng.append("rect").attr("x", -w / 2 - 6).attr("y", -h / 2 - 6)
           .attr("width", w + 12).attr("height", h + 12).attr("rx", 14 * scale)
           .attr("fill", T.gold).attr("opacity", .12);
       }
       if (isDetail && !isSel) {
-        ng.append("rect").attr("x", -w/2 - 4).attr("y", -h/2 - 4)
+        ng.append("rect").attr("x", -w / 2 - 4).attr("y", -h / 2 - 4)
           .attr("width", w + 8).attr("height", h + 8).attr("rx", 12 * scale)
           .attr("fill", T.blue).attr("opacity", .1);
       }
 
-      ng.append("rect").attr("x", -w/2).attr("y", -h/2)
+      ng.append("rect").attr("x", -w / 2).attr("y", -h / 2)
         .attr("width", w).attr("height", h).attr("rx", 8 * scale)
         .attr("fill", isRoot ? T.raised : T.surface)
         .attr("stroke", isSel ? T.gold : (isRoot ? T.gold : clr))
@@ -544,7 +578,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         .attr("stroke-opacity", isSel ? 1 : (isRoot ? .7 : .25));
 
       if (isRoot) {
-        ng.append("text").attr("text-anchor", "middle").attr("y", -h/2 - 4 * scale)
+        ng.append("text").attr("text-anchor", "middle").attr("y", -h / 2 - 4 * scale)
           .attr("fill", T.goldDim).attr("font-size", `${10 * scale}px`).attr("font-family", T.mono)
           .attr("letter-spacing", "1.5px").text("ROOT");
       }
@@ -572,9 +606,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       // Child count badge for ring-1 nodes with children (when collapsed)
       const kidCount = (childrenOf.get(m.id) || []).length;
       if (kidCount > 0 && !focusId && !isRoot) {
-        ng.append("circle").attr("cx", w/2 + 2).attr("cy", -h/2 - 2)
+        ng.append("circle").attr("cx", w / 2 + 2).attr("cy", -h / 2 - 2)
           .attr("r", 7).attr("fill", T.gold).attr("opacity", 0.8);
-        ng.append("text").attr("x", w/2 + 2).attr("y", -h/2 + 1)
+        ng.append("text").attr("x", w / 2 + 2).attr("y", -h / 2 + 1)
           .attr("text-anchor", "middle").attr("fill", T.bg)
           .attr("font-size", "9px").attr("font-weight", 700)
           .attr("font-family", T.mono).text(kidCount);
@@ -584,9 +618,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       if (crossFamilyIds.has(m.id) && fId === family.id) {
         const isExpanded = expandedCrossIds.has(m.id);
         const badge = ng.append("g").style("cursor", "pointer");
-        badge.append("circle").attr("cx", -w/2 - 2).attr("cy", -h/2 - 2)
+        badge.append("circle").attr("cx", -w / 2 - 2).attr("cy", -h / 2 - 2)
           .attr("r", 8).attr("fill", isExpanded ? T.gold : T.blue).attr("opacity", 0.9);
-        badge.append("text").attr("x", -w/2 - 2).attr("y", -h/2 + 2)
+        badge.append("text").attr("x", -w / 2 - 2).attr("y", -h / 2 + 2)
           .attr("text-anchor", "middle").attr("fill", "#fff")
           .attr("font-size", "10px").attr("font-weight", 700)
           .attr("font-family", T.mono).text("⟷");
@@ -598,9 +632,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
             return next;
           });
         });
-        badge.on("mouseenter", function() {
+        badge.on("mouseenter", function () {
           d3.select(this).select("circle").transition().duration(100).attr("r", 10);
-        }).on("mouseleave", function() {
+        }).on("mouseleave", function () {
           d3.select(this).select("circle").transition().duration(100).attr("r", 8);
         });
       }
@@ -608,9 +642,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       // Root badge for explicit linked families
       if (isRoot && (linkedFamilies || []).some(lf => !lf.shared_members || lf.shared_members.length === 0)) {
         const badge = ng.append("g").style("cursor", "pointer");
-        badge.append("circle").attr("cx", -w/2 - 2).attr("cy", -h/2 - 2)
+        badge.append("circle").attr("cx", -w / 2 - 2).attr("cy", -h / 2 - 2)
           .attr("r", 8).attr("fill", showExplicitLinked ? T.gold : T.blue).attr("opacity", 0.9);
-        badge.append("text").attr("x", -w/2 - 2).attr("y", -h/2 + 2)
+        badge.append("text").attr("x", -w / 2 - 2).attr("y", -h / 2 + 2)
           .attr("text-anchor", "middle").attr("fill", "#fff")
           .attr("font-size", "10px").attr("font-weight", 700)
           .attr("font-family", T.mono).text("⟷");
@@ -618,17 +652,17 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
           event.stopPropagation();
           setShowExplicitLinked(prev => !prev);
         });
-        badge.on("mouseenter", function() {
+        badge.on("mouseenter", function () {
           d3.select(this).select("circle").transition().duration(100).attr("r", 10);
-        }).on("mouseleave", function() {
+        }).on("mouseleave", function () {
           d3.select(this).select("circle").transition().duration(100).attr("r", 8);
         });
       }
 
-      ng.on("mouseenter", function() {
+      ng.on("mouseenter", function () {
         d3.select(this).select("rect").transition().duration(80)
           .attr("stroke", T.gold).attr("stroke-opacity", 1);
-      }).on("mouseleave", function() {
+      }).on("mouseleave", function () {
         if (m.id !== selectedWord?.id) {
           d3.select(this).select("rect").transition().duration(80)
             .attr("stroke", isRoot ? T.gold : clr)
@@ -841,13 +875,13 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
         let dragLine = null;
         let startScreenX, startScreenY, dragging = false;
         ng.call(d3.drag()
-          .on("start", function(event) {
+          .on("start", function (event) {
             event.sourceEvent.stopPropagation();
             startScreenX = event.sourceEvent.clientX;
             startScreenY = event.sourceEvent.clientY;
             dragging = false;
           })
-          .on("drag", function(event) {
+          .on("drag", function (event) {
             const dx = event.sourceEvent.clientX - startScreenX;
             const dy = event.sourceEvent.clientY - startScreenY;
             if (!dragging && Math.hypot(dx, dy) < MIN_DRAG_PX) return; // not yet a real drag
@@ -863,7 +897,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
             }
             if (dragLine) dragLine.attr("x2", event.sourceEvent.offsetX).attr("y2", event.sourceEvent.offsetY);
           })
-          .on("end", function(event) {
+          .on("end", function (event) {
             if (dragLine) dragLine.remove();
             if (!dragging) return; // was just a click, not a drag
             // Find closest node to drop point
@@ -928,8 +962,10 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       <svg ref={svgRef} width={width} height={height}
         style={{ position: "absolute", top: 0, left: 0, display: "block", background: T.bg }} />
       {!family && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
-          justifyContent: "center", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", alignItems: "center",
+          justifyContent: "center", flexDirection: "column", gap: 8, pointerEvents: "none"
+        }}>
           <div style={{ fontSize: 32, opacity: .1 }}>&#x27E1;</div>
           <div style={{ color: T.dim, fontSize: 15, fontFamily: T.font }}>
             Select a word to see its derivational family</div>
@@ -998,9 +1034,11 @@ function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
       </div>
       {total > 1 && (
         <button onClick={nextSentence}
-          style={{ marginTop: 8, padding: "5px 12px", background: T.raised, color: T.gold,
+          style={{
+            marginTop: 8, padding: "5px 12px", background: T.raised, color: T.gold,
             border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11, fontFamily: T.font,
-            cursor: "pointer" }}>
+            cursor: "pointer"
+          }}>
           Another sentence ({offset + 1}/{total})
         </button>
       )}
@@ -1013,6 +1051,10 @@ function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
    ═══════════════════════════════════════════════════ */
 function FormsPanel({ lemmaId, workId, scope }) {
   const activeWorkId = scope === "work" && workId ? workId : null;
+  // we need to relocate all of these to some 'api' file/directory
+  // this is not scalable
+  // why? this tightly couples logic unpacking whatever was returned from the api to component level code
+  // ideally, we'd have types and autocomplete and all of that joy coming from those api files
   const url = lemmaId
     ? `${API}/lemma/${lemmaId}${activeWorkId ? `?work_id=${activeWorkId}` : ""}`
     : null;
@@ -1032,13 +1074,17 @@ function FormsPanel({ lemmaId, workId, scope }) {
   }, [data?.forms]);
 
   if (!lemmaId) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-      height: "100%", color: T.dim, fontSize: 14, fontStyle: "italic", padding: 16, textAlign: "center" }}>
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "center",
+      height: "100%", color: T.dim, fontSize: 14, fontStyle: "italic", padding: 16, textAlign: "center"
+    }}>
       Click a word to see details</div>
   );
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-      height: "100%", color: T.dim }}>Loading...</div>
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "center",
+      height: "100%", color: T.dim
+    }}>Loading...</div>
   );
   if (!data) return null;
 
@@ -1086,8 +1132,10 @@ function FormsPanel({ lemmaId, workId, scope }) {
           <div>
             {groupedForms.map(([group, forms], gi) => (
               <div key={gi} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: T.goldDim, letterSpacing: 1, marginBottom: 3,
-                  textTransform: "uppercase" }}>{group}</div>
+                <div style={{
+                  fontSize: 11, color: T.goldDim, letterSpacing: 1, marginBottom: 3,
+                  textTransform: "uppercase"
+                }}>{group}</div>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <tbody>
                     {forms.map((f, fi) => (
@@ -1109,8 +1157,10 @@ function FormsPanel({ lemmaId, workId, scope }) {
         )}
 
         {tab === "works" && (data.top_works || []).map((w, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0",
-            borderBottom: `1px solid ${T.border}` }}>
+          <div key={i} style={{
+            display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0",
+            borderBottom: `1px solid ${T.border}`
+          }}>
             <span style={{ fontFamily: T.mono, fontSize: 12, color: T.gold, minWidth: 42, textAlign: "right" }}>×{w.count}</span>
             <span style={{ fontSize: 14, color: T.bright }}>{w.author}</span>
             <span style={{ fontSize: 13, color: T.dim, fontStyle: "italic" }}>{w.title}</span>
@@ -1203,8 +1253,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
   }, [conflict, familyId, onDone, onClose]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
-      display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }}
       onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -1212,11 +1264,15 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
         boxShadow: "0 8px 32px rgba(0,0,0,.5)",
       }}>
         {/* Header */}
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{
+          padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between"
+        }}>
           <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Add Word to Family</span>
-          <button onClick={onClose} style={{ background: "none", border: "none",
-            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
+          <button onClick={onClose} style={{
+            background: "none", border: "none",
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0
+          }}>x</button>
         </div>
 
         {/* Search */}
@@ -1224,9 +1280,11 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
           <input value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && doSearch()}
             placeholder="Search lemma or definition..."
-            style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
+            style={{
+              flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
               borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
-              fontFamily: T.font, outline: "none" }} autoFocus />
+              fontFamily: T.font, outline: "none"
+            }} autoFocus />
           <button onClick={doSearch} disabled={searching} style={{
             background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
             color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -1245,8 +1303,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
               }}>
               <span style={{ color: selected?.id === r.id ? T.gold : T.bright, fontWeight: 500 }}>{r.lemma}</span>
               <span style={{ fontSize: 11, color: POS_CLR[r.pos] || T.dim }}>{r.pos}</span>
-              <span style={{ fontSize: 12, color: T.dim, fontStyle: "italic", flex: 1,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_def}</span>
+              <span style={{
+                fontSize: 12, color: T.dim, fontStyle: "italic", flex: 1,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+              }}>{r.short_def}</span>
             </div>
           ))}
           {searching && <div style={{ padding: 12, color: T.dim, fontSize: 13, textAlign: "center" }}>Searching...</div>}
@@ -1254,8 +1314,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
 
         {/* Relation picker + action */}
         {selected && !conflict && (
-          <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
-            display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            padding: "8px 14px", borderTop: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column", gap: 6
+          }}>
             <div style={{ fontSize: 12, color: T.dim }}>
               Adding <strong style={{ color: T.bright }}>{selected.lemma}</strong> to <strong style={{ color: T.gold }}>{familyLabel}</strong>
             </div>
@@ -1265,16 +1327,20 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
                   if (e.target.value === "__custom__") setUseCustom(true);
                   else { setUseCustom(false); setRelation(e.target.value); }
                 }}
-                style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                  padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }}>
+                style={{
+                  background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
+                  padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1
+                }}>
                 {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                 <option value="__custom__">Custom...</option>
               </select>
               {useCustom && (
                 <input value={customRel} onChange={e => setCustomRel(e.target.value)}
                   placeholder="Custom relation..."
-                  style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }} />
+                  style={{
+                    background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
+                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1
+                  }} />
               )}
             </div>
             {/* Parent picker */}
@@ -1282,8 +1348,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 12, color: T.dim, flexShrink: 0 }}>Derives from:</span>
                 <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
-                  style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
-                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1 }}>
+                  style={{
+                    background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 4,
+                    padding: "4px 6px", color: T.text, fontSize: 13, fontFamily: T.font, flex: 1
+                  }}>
                   <option value="">Root (direct)</option>
                   {familyMembers.map(m => (
                     <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
@@ -1301,8 +1369,10 @@ function AddWordModal({ familyId, familyLabel, familyMembers, onClose, onDone })
 
         {/* Merge prompt */}
         {conflict && (
-          <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}`,
-            display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            padding: "10px 14px", borderTop: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column", gap: 6
+          }}>
             <div style={{ fontSize: 13, color: T.orange }}>
               <strong>{selected?.lemma}</strong> already belongs to family: <strong>{conflict.existing_family_label}</strong>
             </div>
@@ -1505,8 +1575,10 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
         {editingRel && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <select value={relation} onChange={e => setRelation(e.target.value)}
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }}>
               {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             <button onClick={doUpdateRelation} style={{
@@ -1520,8 +1592,10 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ fontSize: 12, color: T.dim }}>Derives from:</div>
             <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }}>
               <option value="">Root (direct)</option>
               {parentOptions.map(m => (
                 <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
@@ -1573,13 +1647,17 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
             <div style={{ fontSize: 12, color: T.dim }}>Definition:</div>
             <input value={shortDef} onChange={e => setShortDef(e.target.value)}
               placeholder="Short definition"
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }} />
             <div style={{ fontSize: 12, color: T.dim }}>POS:</div>
             <input value={pos} onChange={e => setPos(e.target.value)}
               placeholder="Part of speech"
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }} />
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={doUpdateDef} style={{
                 flex: 1, background: T.gold, border: "none", borderRadius: 3, padding: "4px 0",
@@ -1599,14 +1677,19 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
             <input value={mergeSearch} onChange={e => doMergeSearch(e.target.value)}
               placeholder="Type lemma to search..."
               autoFocus
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }} />
             {mergeResults.length > 0 && (
-              <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
-                borderRadius: 3, background: T.bg }}>
+              <div style={{
+                maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
+                borderRadius: 3, background: T.bg
+              }}>
                 {mergeResults.map(r => (
                   <div key={r.id} onClick={() => setMergeTarget(r)}
-                    style={{ padding: "3px 6px", fontSize: 12, cursor: "pointer",
+                    style={{
+                      padding: "3px 6px", fontSize: 12, cursor: "pointer",
                       color: mergeTarget?.id === r.id ? T.gold : T.text,
                       background: mergeTarget?.id === r.id ? T.hover : "none",
                     }}
@@ -1637,14 +1720,19 @@ function NodeActionPopover({ member, familyId, familyMembers, familyRootId, x, y
             <input value={familySearch} onChange={e => doFamilySearch(e.target.value)}
               placeholder="Search families by root..."
               autoFocus
-              style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              style={{
+                background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+                padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+              }} />
             {familySearchResults.length > 0 && (
-              <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
-                borderRadius: 3, background: T.bg }}>
+              <div style={{
+                maxHeight: 150, overflowY: "auto", border: `1px solid ${T.border}`,
+                borderRadius: 3, background: T.bg
+              }}>
                 {familySearchResults.map(r => (
                   <div key={r.id} onClick={() => setTargetFamily(r)}
-                    style={{ padding: "3px 6px", fontSize: 12, cursor: "pointer",
+                    style={{
+                      padding: "3px 6px", fontSize: 12, cursor: "pointer",
                       color: targetFamily?.id === r.id ? T.gold : T.text,
                       background: targetFamily?.id === r.id ? T.hover : "none",
                     }}
@@ -1708,19 +1796,25 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
   }, [selected, familyId, onDone, onClose]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
-      display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }}
       onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
         width: 420, maxHeight: "70vh", display: "flex", flexDirection: "column",
         boxShadow: "0 8px 32px rgba(0,0,0,.5)",
       }}>
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{
+          padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between"
+        }}>
           <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Merge Another Family</span>
-          <button onClick={onClose} style={{ background: "none", border: "none",
-            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
+          <button onClick={onClose} style={{
+            background: "none", border: "none",
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0
+          }}>x</button>
         </div>
         <div style={{ padding: "6px 14px", fontSize: 12, color: T.dim }}>
           Merging into: <strong style={{ color: T.gold }}>{familyLabel}</strong>
@@ -1730,9 +1824,11 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
           <input value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && doSearch()}
             placeholder="Search by root, label, or word..."
-            style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
+            style={{
+              flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
               borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
-              fontFamily: T.font, outline: "none" }} autoFocus />
+              fontFamily: T.font, outline: "none"
+            }} autoFocus />
           <button onClick={doSearch} disabled={searching} style={{
             background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
             color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -1760,8 +1856,10 @@ function MergeFamilyModal({ familyId, familyLabel, onClose, onDone }) {
         </div>
 
         {selected && (
-          <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
-            display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            padding: "8px 14px", borderTop: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column", gap: 6
+          }}>
             <div style={{ fontSize: 12, color: T.dim }}>
               Merge <strong style={{ color: T.bright }}>{selected.label}</strong> ({selected.member_count} words) into <strong style={{ color: T.gold }}>{familyLabel}</strong>?
             </div>
@@ -1798,8 +1896,10 @@ function RenameFamilyModal({ familyId, currentRoot, currentLabel, onClose, onDon
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
-      display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }}
       onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
@@ -1810,16 +1910,20 @@ function RenameFamilyModal({ familyId, currentRoot, currentLabel, onClose, onDon
         <div>
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>ROOT STEM</div>
           <input value={root} onChange={e => setRoot(e.target.value)}
-            style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+            style={{
+              width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
               borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 15,
-              fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              fontFamily: T.font, outline: "none", boxSizing: "border-box"
+            }} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 3, letterSpacing: .5 }}>LABEL</div>
           <input value={label} onChange={e => setLabel(e.target.value)}
-            style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+            style={{
+              width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
               borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 15,
-              fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              fontFamily: T.font, outline: "none", boxSizing: "border-box"
+            }} />
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={doSave} disabled={saving} style={{
@@ -1876,19 +1980,25 @@ function LinkFamilyModal({ familyId, familyLabel, onClose, onDone }) {
   }, [selected, familyId, linkType, note, onDone, onClose]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
-      display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }}
       onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
         background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
         width: 420, maxHeight: "70vh", display: "flex", flexDirection: "column",
         boxShadow: "0 8px 32px rgba(0,0,0,.5)",
       }}>
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{
+          padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between"
+        }}>
           <span style={{ fontSize: 14, color: T.gold, fontWeight: 600 }}>Link Another Family</span>
-          <button onClick={onClose} style={{ background: "none", border: "none",
-            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0 }}>x</button>
+          <button onClick={onClose} style={{
+            background: "none", border: "none",
+            color: T.dim, cursor: "pointer", fontSize: 18, padding: 0
+          }}>x</button>
         </div>
         <div style={{ padding: "6px 14px", fontSize: 12, color: T.dim }}>
           Linking to: <strong style={{ color: T.gold }}>{familyLabel}</strong>
@@ -1898,9 +2008,11 @@ function LinkFamilyModal({ familyId, familyLabel, onClose, onDone }) {
           <input value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && doSearch()}
             placeholder="Search by root, label, or word..."
-            style={{ flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
+            style={{
+              flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
               borderRadius: 4, padding: "6px 8px", color: T.text, fontSize: 14,
-              fontFamily: T.font, outline: "none" }} autoFocus />
+              fontFamily: T.font, outline: "none"
+            }} autoFocus />
           <button onClick={doSearch} disabled={searching} style={{
             background: T.gold, border: "none", borderRadius: 4, padding: "6px 12px",
             color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -1928,8 +2040,10 @@ function LinkFamilyModal({ familyId, familyLabel, onClose, onDone }) {
         </div>
 
         {selected && (
-          <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`,
-            display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            padding: "8px 14px", borderTop: `1px solid ${T.border}`,
+            display: "flex", flexDirection: "column", gap: 6
+          }}>
             <div style={{ fontSize: 12, color: T.dim }}>
               Link <strong style={{ color: T.bright }}>{selected.label}</strong> ({selected.member_count} words) to <strong style={{ color: T.gold }}>{familyLabel}</strong>
             </div>
@@ -1937,17 +2051,21 @@ function LinkFamilyModal({ familyId, familyLabel, onClose, onDone }) {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Link type</div>
                 <select value={linkType} onChange={e => setLinkType(e.target.value)}
-                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
-                    borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                  style={{
+                    width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                    borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+                  }}>
                   {LINK_TYPES.map(lt => <option key={lt} value={lt}>{lt}</option>)}
                 </select>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Note (optional)</div>
                 <input value={note} onChange={e => setNote(e.target.value)}
-                  style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                  style={{
+                    width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
                     borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12,
-                    fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                    fontFamily: T.font, outline: "none", boxSizing: "border-box"
+                  }} />
               </div>
             </div>
             {error && <div style={{ fontSize: 12, color: T.red }}>{error}</div>}
@@ -1997,7 +2115,7 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
       fetch(url).then(r => r.json()).then(d => {
         setResults(d.results || []);
         setOpen(true);
-      }).catch(() => {});
+      }).catch(() => { });
     }, 250);
     return () => clearTimeout(timerRef.current);
   }, [query, mode]);
@@ -2045,8 +2163,10 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
     <div ref={wrapRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: 4 }}>
       {/* Mode toggle */}
       <select value={mode} onChange={e => { setMode(e.target.value); setResults([]); setSelected(null); }}
-        style={{ background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
-          padding: "2px 4px", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer" }}>
+        style={{
+          background: T.bg, border: `1px solid ${T.borderL}`, borderRadius: 3,
+          padding: "2px 4px", color: T.dim, fontSize: 11, fontFamily: T.mono, cursor: "pointer"
+        }}>
         <option value="words">Words</option>
         <option value="families">Families</option>
       </select>
@@ -2055,38 +2175,48 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
       <input value={query} onChange={e => setQuery(e.target.value)}
         onFocus={() => { if (results.length > 0) setOpen(true); }}
         placeholder={mode === "families" ? "Search families..." : "Search words to add..."}
-        style={{ width: 180, background: T.bg, border: `1px solid ${T.borderL}`,
+        style={{
+          width: 180, background: T.bg, border: `1px solid ${T.borderL}`,
           borderRadius: 4, padding: "3px 8px", color: T.text, fontSize: 12,
-          fontFamily: T.font, outline: "none" }} />
+          fontFamily: T.font, outline: "none"
+        }} />
 
       {/* Dropdown */}
       {open && results.length > 0 && !selected && (
-        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4,
+        <div style={{
+          position: "absolute", top: "100%", left: 0, marginTop: 4,
           width: 360, maxHeight: 300, overflowY: "auto", zIndex: 1000,
           background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
-          boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+          boxShadow: "0 8px 24px rgba(0,0,0,.5)"
+        }}>
           {mode === "words" ? results.map(r => {
             const inFamily = currentMemberIds.has(r.id);
             return (
               <div key={r.id} onClick={() => { if (!inFamily) setSelected(r); }}
-                style={{ padding: "6px 12px", cursor: inFamily ? "default" : "pointer",
+                style={{
+                  padding: "6px 12px", cursor: inFamily ? "default" : "pointer",
                   display: "flex", alignItems: "baseline", gap: 6,
                   background: inFamily ? "rgba(107,156,107,.08)" : "transparent",
-                  borderBottom: `1px solid ${T.border}` }}
+                  borderBottom: `1px solid ${T.border}`
+                }}
                 onMouseEnter={e => { if (!inFamily) e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = inFamily ? "rgba(107,156,107,.08)" : "transparent"; }}>
                 <span style={{ color: T.bright, fontWeight: 500, fontSize: 14, fontFamily: T.font }}>{r.lemma}</span>
                 <span style={{ color: POS_CLR[r.pos] || T.dim, fontSize: 11, fontWeight: 600 }}>{r.pos}</span>
-                <span style={{ color: T.dim, fontSize: 11, fontStyle: "italic", flex: 1,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{
+                  color: T.dim, fontSize: 11, fontStyle: "italic", flex: 1,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                }}>
                   {(r.short_def || "").slice(0, 40)}</span>
                 {inFamily && <span style={{ color: T.green, fontSize: 10, fontFamily: T.mono }}>IN FAMILY</span>}
               </div>
             );
           }) : results.map(r => (
-            <div key={r.id} style={{ padding: "6px 12px", cursor: "pointer",
+            <div key={r.id} style={{
+              padding: "6px 12px", cursor: "pointer",
               display: "flex", alignItems: "baseline", gap: 6,
-              borderBottom: `1px solid ${T.border}` }}
+              borderBottom: `1px solid ${T.border}`
+            }}
               onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
               onClick={() => doMergeFamily(r.id)}>
@@ -2100,10 +2230,12 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
 
       {/* Selected word — add flow */}
       {selected && (
-        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4,
+        <div style={{
+          position: "absolute", top: "100%", left: 0, marginTop: 4,
           width: 340, zIndex: 1000, background: T.surface,
           border: `1px solid ${T.border}`, borderRadius: 6, padding: 12,
-          boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+          boxShadow: "0 8px 24px rgba(0,0,0,.5)"
+        }}>
           <div style={{ fontSize: 14, color: T.bright, fontWeight: 600, marginBottom: 8 }}>
             Add <span style={{ color: T.gold }}>{selected.lemma}</span> ({selected.pos})
           </div>
@@ -2130,16 +2262,20 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Relation</div>
                   <select value={relation} onChange={e => setRelation(e.target.value)}
-                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
-                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                    style={{
+                      width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+                    }}>
                     {RELATION_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>Parent</div>
                   <select value={parentLemmaId} onChange={e => setParentLemmaId(e.target.value)}
-                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
-                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font }}>
+                    style={{
+                      width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                      borderRadius: 3, padding: "3px 5px", color: T.text, fontSize: 12, fontFamily: T.font
+                    }}>
                     <option value="">Root (direct)</option>
                     {parentOptions.map(m => (
                       <option key={m.id} value={m.id}>{m.lemma} ({m.pos})</option>
@@ -2191,6 +2327,10 @@ export default function App() {
   const [vocabLimit, setVocabLimit] = useState(500);
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
+  const [headerExpanded, setHeaderExpanded] = useState(false);
+  const views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  const [currentView, setCurrentView] = useState(0);
+
 
   // Global loading tracker
   const loading = useLoadingTracker();
@@ -2206,7 +2346,7 @@ export default function App() {
         fetch(`${API}/works?author=${encodeURIComponent(a.author)}`)
           .then(r => r.json()).then(d => {
             setWorksMap(prev => ({ ...prev, [a.author]: d.works || [] }));
-          }).catch(() => {}).finally(() => loading.stop());
+          }).catch(() => { }).finally(() => loading.stop());
       }
     });
   }, [authors]);
@@ -2331,24 +2471,139 @@ export default function App() {
     return () => ro.disconnect();
   }, [leftPinned, rightPinned]);
 
+
+
+  // TODO: pull into separate view jsx
+  const [toSay, setToSay] = useState('');
+  const [language, setLanguage] = useState(0);
+  const [mediaBlobUrl, setMediaBlobUrl] = useState('');
+  const [lastWordsUttered, setlastWordsUttered] = useState('');
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [transcription, setTranscription] = useState("");
+  const [recording, setRecording] = useState(false);
+  const videoRef = useRef(null);
+  const languages = ['arabic', 'english', 'greek'];
+  async function getProductionTask() {
+    try {
+      const response = await fetch("http://localhost:5000/get_production_task?language=" + languages[language], {
+        method: "GET",
+      });
+
+      const data = await response.json();
+      // demo only, i don't want to blabber
+      return 'القدس';
+      return decodeB64String(data.text);
+    } catch (err) {
+      console.log("failed to get production task:", err);
+      return null;
+    }
+  }
+  function decodeB64String(str) {
+    const binary = atob(str);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  async function sendAudioToServer(blob) {
+    const copy = await fetch(blob).then((r) => r.blob());
+    const formData = new FormData();
+    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
+    formData.append("language", languages[language]);
+
+    try {
+      const response = await fetch("http://localhost:5000/transcribe", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      console.log(data);
+      // TODO: remove after demo
+      data.text = 'الكدس';
+      setlastWordsUttered(data.text);
+      return data.text;
+    } catch (err) {
+      console.log("Failed to send audio:", err);
+      return null;
+    }
+  }
+
+  const fetchTask = async () => {
+    try {
+      const params = languages[language] == 'arabic' ? "?arabic=1" : "?english=1";
+      const response = await fetch(`http://localhost:5000/get_perception_task${params}`);
+      console.log(response);
+      const blob = await response.blob();
+      setAudioUrl(URL.createObjectURL(blob));
+
+      const encodedTranscription = response.headers.get("X-Transcription");
+      console.log("hi", encodedTranscription);
+
+      if (encodedTranscription) {
+        setTranscription(decodeB64String(encodedTranscription));
+      }
+    } catch (err) {
+      console.log("Error fetching perception task:", err);
+    }
+  };
+  const [languageHeaderExpanded, setLanguageHeaderExpanded] = useState(false);
+
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column",
-      background: T.bg, color: T.text, fontFamily: T.font, overflow: "hidden" }}>
+    <div style={{
+      height: "100vh", display: "flex", flexDirection: "column",
+      background: T.bg, color: T.text, fontFamily: T.font, overflow: "hidden"
+    }}>
       <LoadingBar visible={loading.visible} />
       <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet" />
 
       {/* Header */}
-      <header style={{ borderBottom: `1px solid ${T.border}`, padding: "7px 14px",
-        display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      <header style={{
+        borderBottom: `1px solid ${T.border}`, padding: "7px 14px",
+        display: "flex", alignItems: "center", gap: 10, flexShrink: 0
+      }}>
         <span style={{ fontSize: 20, fontWeight: 700, color: T.bright, letterSpacing: 1 }}>ΓΛΩΣΣΑ</span>
-        <span style={{ fontSize: 13, color: T.dim, letterSpacing: 1 }}>Vocabulary Explorer</span>
-        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
-          background: connected ? "rgba(107,156,107,.15)" : "rgba(196,87,74,.15)",
-          color: connected ? T.green : T.red,
-          border: `1px solid ${connected ? "rgba(107,156,107,.3)" : "rgba(196,87,74,.3)"}`,
-        }}>{connected ? "CONNECTED" : "CONNECTING"}</span>
+        <span style={{ cursor: 'pointer' }} onClick={() => setHeaderExpanded(!headerExpanded)}>{headerExpanded ? "▾" : "▸"}</span>
+        <div>
+          <div style={{ fontSize: 13, color: T.dim, letterSpacing: 1, textAlign: 'center' }}>{views[currentView]}
+          </div>
+          {views.map((_, idx) => <>
+            {/* copied from above since we aren't using a scalable styling solution :( */}
+            {(idx != currentView && headerExpanded) &&
+              <div className='hover-color' onClick={() => {
+                setCurrentView(idx);
+                setHeaderExpanded(false);
+              }} style={{ textAlign: 'center', cursor: 'pointer', fontSize: 13, color: T.dim, letterSpacing: 1 }}>{views[idx]}</div>}
+          </>)}
+        </div>
+        {currentView !== 0 && <>
+          <span style={{ cursor: 'pointer' }} onClick={() => setLanguageHeaderExpanded(!languageHeaderExpanded)}>{languageHeaderExpanded ? "▾" : "▸"}</span>
+
+          <div>
+            <div style={{ fontSize: 13, color: T.dim, letterSpacing: 1, textAlign: 'center' }}>
+              Current Language: {languages[language]}
+            </div>
+            {/* copied, should be pulled out into separate component */}
+            {languages.map((_, idx) => <>
+              {/* copied from above since we aren't using a scalable styling solution :( */}
+              {(idx != language && languageHeaderExpanded) &&
+                <div className='hover-color' onClick={() => {
+                  setLanguage(idx);
+                  setLanguageHeaderExpanded(false);
+                }} style={{ textAlign: 'center', cursor: 'pointer', fontSize: 13, color: T.dim, letterSpacing: 1 }}>{languages[idx]}</div>}
+            </>)}
+          </div></>}
+        {currentView === 0 && <>
+          <span style={{
+            fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
+            background: connected ? "rgba(107,156,107,.15)" : "rgba(196,87,74,.15)",
+            color: connected ? T.green : T.red,
+            border: `1px solid ${connected ? "rgba(107,156,107,.3)" : "rgba(196,87,74,.3)"}`,
+          }}>{connected ? "CONNECTED" : "CONNECTING"}
+          </span></>
+
+        }
         {superuser && (
-          <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
+          <span style={{
+            fontSize: 10, padding: "2px 6px", borderRadius: 3, letterSpacing: 1,
             background: "rgba(212,168,67,.15)", color: T.gold,
             border: `1px solid rgba(212,168,67,.3)`,
           }}>SUPERUSER</span>
@@ -2362,44 +2617,51 @@ export default function App() {
       </header>
 
       {/* Main layout */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      {currentView === 0 && <>
 
-        {/* LEFT: Works + Word list */}
-        <CollapsiblePanel side="left" label="WORKS & VOCABULARY"
-          expandedWidth={420} pinned={leftPinned} onTogglePin={() => setLeftPinned(p => !p)}>
-          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-            {/* Works panel */}
-            <div style={{ width: 200, flexShrink: 0, borderRight: `1px solid ${T.border}`,
-              display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <WorkSelector authors={authors} works={worksMap}
-                selectedAuthors={selectedAuthors} selectedWorks={selectedWorks}
-                onToggleAuthor={toggleAuthor} onToggleWork={toggleWork} />
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* LEFT: Works + Word list */}
+          <CollapsiblePanel side="left" label="WORKS & VOCABULARY"
+            // gah! why are we not using responsive units?
+            // everything is not mobile responsive
+            // we should also be using a css framework, as they simplify the actual grids
+            expandedWidth={420} pinned={leftPinned} onTogglePin={() => setLeftPinned(p => !p)}>
+            <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+              {/* Works panel */}
+              <div style={{
+                width: 200, flexShrink: 0, borderRight: `1px solid ${T.border}`,
+                display: "flex", flexDirection: "column", overflow: "hidden"
+              }}>
+                <WorkSelector authors={authors} works={worksMap}
+                  selectedAuthors={selectedAuthors} selectedWorks={selectedWorks}
+                  onToggleAuthor={toggleAuthor} onToggleWork={toggleWork} />
+              </div>
+              {/* Word list */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <WordList vocab={vocab} selectedId={selectedWord?.id}
+                  onSelect={w => { setSelectedWord(w); setDetailWord(w); setRightPinned(true); }}
+                  sort={vocabSort} onSortChange={setVocabSort}
+                  searchQ={vocabSearch} onSearchChange={setVocabSearch}
+                  loading={vocabLoading}
+                  posFilter={posFilter} onPosFilterChange={togglePos}
+                  totalCount={vocabData?.count || vocab.length}
+                  canLoadMore={(vocabData?.count || 0) >= vocabLimit}
+                  onLoadMore={() => setVocabLimit(prev => prev + 500)} />
+              </div>
             </div>
-            {/* Word list */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <WordList vocab={vocab} selectedId={selectedWord?.id}
-                onSelect={w => { setSelectedWord(w); setDetailWord(w); setRightPinned(true); }}
-                sort={vocabSort} onSortChange={setVocabSort}
-                searchQ={vocabSearch} onSearchChange={setVocabSearch}
-                loading={vocabLoading}
-                posFilter={posFilter} onPosFilterChange={togglePos}
-                totalCount={vocabData?.count || vocab.length}
-                canLoadMore={(vocabData?.count || 0) >= vocabLimit}
-                onLoadMore={() => setVocabLimit(prev => prev + 500)} />
-            </div>
-          </div>
-        </CollapsiblePanel>
+          </CollapsiblePanel>
 
-        {/* CENTER: Family tree */}
-        <div ref={centerRef} style={{ flex: 1, display: "flex", flexDirection: "column",
-          overflow: "hidden", position: "relative", background: T.bg }}>
           {/* Superuser toolbar */}
           {superuser && family && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px",
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "4px 12px",
               background: "rgba(212,168,67,0.08)", borderBottom: `1px solid ${T.goldDim}`,
-              flexShrink: 0 }}>
-              <span style={{ fontSize: 11, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
-                fontWeight: 700 }}>EDIT MODE</span>
+              flexShrink: 0
+            }}>
+              <span style={{
+                fontSize: 11, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
+                fontWeight: 700
+              }}>EDIT MODE</span>
               <button onClick={() => setShowAddModal(true)} style={{
                 background: T.gold, border: "none", borderRadius: 4, padding: "3px 10px",
                 color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -2412,18 +2674,79 @@ export default function App() {
                 background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
                 color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}>Rename Root</button>
-              <button onClick={() => setShowLinkModal(true)} style={{
-                background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>Link Family</button>
-              <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
-              <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
+              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
             </div>
           )}
-          {hasWorkFilter && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
-              borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
+          
+
+          {/* CENTER: Family tree */}
+          <div ref={centerRef} style={{
+            flex: 1, display: "flex", flexDirection: "column",
+            overflow: "hidden", position: "relative", background: T.bg
+          }}>
+            {/* Superuser toolbar */}
+            {superuser && family && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "4px 12px",
+                background: "rgba(212,168,67,0.08)", borderBottom: `1px solid ${T.goldDim}`,
+                flexShrink: 0
+              }}>
+                <span style={{
+                  fontSize: 11, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
+                  fontWeight: 700
+                }}>EDIT MODE</span>
+                <button onClick={() => setShowAddModal(true)} style={{
+                  background: T.gold, border: "none", borderRadius: 4, padding: "3px 10px",
+                  color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>+ Add Word</button>
+                <button onClick={() => setShowMergeModal(true)} style={{
+                  background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                  color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>Merge Family</button>
+                <button onClick={() => setShowRenameModal(true)} style={{
+                  background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                  color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>Rename Root</button>
+                <button onClick={() => setShowLinkModal(true)} style={{
+                  background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                  color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>Link Family</button>
+                <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
+              </div>)}
+            {/* Superuser: Add Word Modal */}
+            {showAddModal && family && (
+              <AddWordModal familyId={family.id} familyLabel={family.label}
+                familyMembers={family.members}
+                onClose={() => setShowAddModal(false)} onDone={bumpFamily} />
+            )}
+
+            {/* Superuser: Node Action Popover */}
+            {nodeAction && family && (
+              <NodeActionPopover member={nodeAction.member} familyId={family.id}
+                familyMembers={family.members}
+                x={nodeAction.x} y={nodeAction.y}
+                onClose={() => setNodeAction(null)} onDone={bumpFamily} />
+            )}
+
+            {/* Superuser: Merge Family Modal */}
+            {showMergeModal && family && (
+              <MergeFamilyModal familyId={family.id} familyLabel={family.label}
+                onClose={() => setShowMergeModal(false)} onDone={bumpFamily} />
+            )}
+
+            {/* Superuser: Rename Family Modal */}
+            {showRenameModal && family && (
+              <RenameFamilyModal familyId={family.id} currentRoot={family.root} currentLabel={family.label}
+                onClose={() => setShowRenameModal(false)} onDone={bumpFamily} />
+            )}
+            <div style={{
+              alignItems: "center", gap: 6, padding: "3px 12px",
+              borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface
+            }}>
+              {hasWorkFilter && (
+            <div>
               <span style={{ fontSize: 11, color: T.dim }}>Scope:</span>
               {["all", "work"].map(s => (
                 <button key={s} onClick={() => setFamilyScope(s)} style={{
@@ -2440,81 +2763,143 @@ export default function App() {
               )}
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 12px",
-            borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface }}>
-            <span style={{ fontSize: 11, color: T.dim }}>View:</span>
-            {["tree", "sunburst"].map(m => (
-              <button key={m} onClick={() => setVizMode(m)} style={{
-                background: vizMode === m ? T.bright : "transparent",
-                color: vizMode === m ? T.bg : T.dim,
-                border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
-                borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-              }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
-            ))}
+              <div><span style={{ fontSize: 11, color: T.dim }}>View:</span>
+              {["tree", "sunburst"].map(m => (
+                <button key={m} onClick={() => setVizMode(m)} style={{
+                  background: vizMode === m ? T.bright : "transparent",
+                  color: vizMode === m ? T.bg : T.dim,
+                  border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
+                  borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
+              ))}</div>
+              
+            </div>
+            
+            <div style={{ flex: 1, position: "relative" }}>
+              {vizMode === "sunburst" ? (
+                <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
+                  onSelectMember={m => setDetailWord(m)}
+                  onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+                  linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
+                  width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
+              ) : (
+                <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
+                  onSelectMember={m => setDetailWord(m)}
+                  onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+                  onReparent={superuser ? handleReparent : undefined}
+                  linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
+                  width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
+              )}
+            </div>
           </div>
-          <div style={{ flex: 1, position: "relative" }}>
-            {vizMode === "sunburst" ? (
-              <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
-                onSelectMember={m => setDetailWord(m)}
-                onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
-                linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
-                width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
-            ) : (
-              <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
-                onSelectMember={m => setDetailWord(m)}
-                onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
-                onReparent={superuser ? handleReparent : undefined}
-                linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
-                width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
-            )}
-          </div>
+
+          {/* RIGHT: Details */}
+          <CollapsiblePanel side="right" label="DETAILS"
+            expandedWidth={300} pinned={rightPinned} onTogglePin={() => setRightPinned(p => !p)}>
+            <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} scope={familyScope} />
+          </CollapsiblePanel>
         </div>
 
-        {/* RIGHT: Details */}
-        <CollapsiblePanel side="right" label="DETAILS"
-          expandedWidth={300} pinned={rightPinned} onTogglePin={() => setRightPinned(p => !p)}>
-          <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} scope={familyScope} />
-        </CollapsiblePanel>
-      </div>
+        {/* Superuser: Add Word Modal */}
+        {showAddModal && family && (
+          <AddWordModal familyId={family.id} familyLabel={family.label}
+            familyMembers={family.members}
+            onClose={() => setShowAddModal(false)} onDone={bumpFamily} />
+        )}
 
-      {/* Superuser: Add Word Modal */}
-      {showAddModal && family && (
-        <AddWordModal familyId={family.id} familyLabel={family.label}
-          familyMembers={family.members}
-          onClose={() => setShowAddModal(false)} onDone={bumpFamily} />
-      )}
+        {/* Superuser: Node Action Popover */}
+        {nodeAction && family && (
+          <NodeActionPopover member={nodeAction.member} familyId={family.id}
+            familyMembers={family.members}
+            familyRootId={(() => {
+              const members = family.members || [];
+              const roots = members.filter(m => m.relation === "root");
+              if (roots.length > 0) return roots.reduce((a, b) => (a.total_occurrences || 0) >= (b.total_occurrences || 0) ? a : b).id;
+              return members[0]?.id;
+            })()}
+            x={nodeAction.x} y={nodeAction.y}
+            onClose={() => setNodeAction(null)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
+        )}
 
-      {/* Superuser: Node Action Popover */}
-      {nodeAction && family && (
-        <NodeActionPopover member={nodeAction.member} familyId={family.id}
-          familyMembers={family.members}
-          familyRootId={(() => {
-            const members = family.members || [];
-            const roots = members.filter(m => m.relation === "root");
-            if (roots.length > 0) return roots.reduce((a, b) => (a.total_occurrences || 0) >= (b.total_occurrences || 0) ? a : b).id;
-            return members[0]?.id;
-          })()}
-          x={nodeAction.x} y={nodeAction.y}
-          onClose={() => setNodeAction(null)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
-      )}
+        {/* Superuser: Merge Family Modal */}
+        {showMergeModal && family && (
+          <MergeFamilyModal familyId={family.id} familyLabel={family.label}
+            onClose={() => setShowMergeModal(false)} onDone={bumpFamily} />
+        )}
 
-      {/* Superuser: Merge Family Modal */}
-      {showMergeModal && family && (
-        <MergeFamilyModal familyId={family.id} familyLabel={family.label}
-          onClose={() => setShowMergeModal(false)} onDone={bumpFamily} />
-      )}
+        {/* Superuser: Rename Family Modal */}
+        {showRenameModal && family && (
+          <RenameFamilyModal familyId={family.id} currentRoot={family.root} currentLabel={family.label}
+            onClose={() => setShowRenameModal(false)} onDone={bumpFamily} />
+        )}
 
-      {/* Superuser: Rename Family Modal */}
-      {showRenameModal && family && (
-        <RenameFamilyModal familyId={family.id} currentRoot={family.root} currentLabel={family.label}
-          onClose={() => setShowRenameModal(false)} onDone={bumpFamily} />
-      )}
+        {/* Superuser: Link Family Modal */}
+        {showLinkModal && family && (
+          <LinkFamilyModal familyId={family.id} familyLabel={family.label}
+            onClose={() => setShowLinkModal(false)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
+        )}
 
-      {/* Superuser: Link Family Modal */}
-      {showLinkModal && family && (
-        <LinkFamilyModal familyId={family.id} familyLabel={family.label}
-          onClose={() => setShowLinkModal(false)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
-      )}
-    </div>
-  );
+      </>}
+
+
+      {currentView === 1 && <>
+        <button style={{
+          padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+          letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+          background: false ? clr : "transparent",
+          color: 'white',
+          border: `1px solid ${false ? clr : T.borderL}`,
+          opacity: false ? 1 : 0.6,
+          width: '10%'
+        }}
+          onClick={async () => {
+            setToSay(await getProductionTask())
+            setlastWordsUttered('');
+          }}>Get New Production Task</button>
+        <ReactMediaRecorder
+          render={({ status, startRecording, stopRecording, mediaBlobUrl: blobUrl }) => {
+            console.log(blobUrl);
+            if (typeof blobUrl !== 'undefined') {
+              setMediaBlobUrl(blobUrl);
+            }
+            return (
+              <div>
+                <button style={{
+                  padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+                  letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+                  background: false ? clr : "transparent",
+                  color: 'white',
+                  border: `1px solid ${false ? clr : T.borderL}`,
+                  opacity: false ? 1 : 0.6,
+                }}
+                  onClick={(e) => {
+                    const innerRec = recording;
+                    setRecording(!innerRec);
+                    return innerRec ? stopRecording(e) : startRecording(e);
+                  }}>{recording ? 'Stop' : 'Start'} Recording</button>
+                <div>
+                  {blobUrl && <video src={blobUrl} controls autoPlay loop />}</div>
+              </div>
+            )
+          }}
+        />
+
+        <Flashcard callback={() => sendAudioToServer(mediaBlobUrl)} toSay={toSay} lastWordsUttered={lastWordsUttered} />
+      </>}
+
+      {currentView === 2 && <>
+        <div style={{ margin: '2rem' }}>
+          <button style={{
+            padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+            letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+            background: false ? clr : "transparent",
+            color: 'white',
+            border: `1px solid ${false ? clr : T.borderL}`,
+            opacity: false ? 1 : 0.6,
+          }} onClick={fetchTask}>Load New Task</button>
+          <Perception audioUrl={audioUrl} videoRef={videoRef} transcription={transcription} />
+        </div>
+      </>}
+
+    </div>)
 }
