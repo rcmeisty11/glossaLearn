@@ -281,3 +281,5 @@ Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](
 | `fix_tlg_titles.py` | Corrects TLG author/title metadata |
 | `repair_database.py` | General database repair utilities |
 | `repair_families_and_titles.py` | Fixes family groupings and work titles |
+| `./speech/download_datasets.sh` | Download and index speech corpora |
+
