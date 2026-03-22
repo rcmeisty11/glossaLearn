@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 sync_edits.py
-Sync local superuser edits to the production database on Fly.io.
+Sync local superuser edits to the production database on aws
 
 Usage:
     python3 sync_edits.py --preview          # Show pending edits
@@ -22,7 +22,7 @@ from pathlib import Path
 DB_PATH = Path("./greek_vocab.db")
 SYNC_FILE = Path(".last_sync_id")
 TOKEN_FILE = Path(".admin_token")
-PROD_API = "https://api.glossalearn.com"
+PROD_API = "https://apiaws.glossalearn.com"
 
 
 def get_db():

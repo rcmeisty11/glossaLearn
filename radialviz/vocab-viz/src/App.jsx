@@ -2189,6 +2189,50 @@ export default function App() {
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
   const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst"
   const [vocabLimit, setVocabLimit] = useState(500);
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [headerResults, setHeaderResults] = useState([]);
+  const [headerSearching, setHeaderSearching] = useState(false);
+  const [headerDropdownOpen, setHeaderDropdownOpen] = useState(false);
+  const headerSearchRef = useRef(null);
+  const headerDropdownRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (headerSearchRef.current && !headerSearchRef.current.contains(e.target) &&
+          headerDropdownRef.current && !headerDropdownRef.current.contains(e.target)) {
+        setHeaderDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Debounced search
+  const headerSearchTimer = useRef(null);
+  const doHeaderSearch = useCallback((q) => {
+    setHeaderSearch(q);
+    if (headerSearchTimer.current) clearTimeout(headerSearchTimer.current);
+    if (!q.trim()) { setHeaderResults([]); setHeaderDropdownOpen(false); return; }
+    headerSearchTimer.current = setTimeout(() => {
+      setHeaderSearching(true);
+      fetch(`${API}/search?q=${encodeURIComponent(q.trim())}&limit=10`)
+        .then(r => r.json()).then(d => {
+          setHeaderResults(d.results || []);
+          setHeaderDropdownOpen(true);
+          setHeaderSearching(false);
+        }).catch(() => setHeaderSearching(false));
+    }, 300);
+  }, []);
+
+  const selectHeaderResult = useCallback((item) => {
+    setSelectedWord(item);
+    setDetailWord(item);
+    setRightPinned(true);
+    setHeaderSearch("");
+    setHeaderResults([]);
+    setHeaderDropdownOpen(false);
+  }, []);
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
 
@@ -2353,6 +2397,48 @@ export default function App() {
             border: `1px solid rgba(212,168,67,.3)`,
           }}>SUPERUSER</span>
         )}
+        {/* Quick Greek word search */}
+        <div style={{ position: "relative", marginLeft: 12 }}>
+          <input ref={headerSearchRef}
+            value={headerSearch}
+            onChange={e => doHeaderSearch(e.target.value)}
+            onFocus={() => { if (headerResults.length > 0) setHeaderDropdownOpen(true); }}
+            placeholder="Look up a Greek word..."
+            style={{
+              background: T.surface, color: T.text, border: `1px solid ${T.border}`,
+              borderRadius: 4, padding: "4px 10px", fontSize: T.sm, fontFamily: T.font,
+              width: 220, outline: "none",
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && headerResults.length > 0) selectHeaderResult(headerResults[0]);
+              if (e.key === "Escape") setHeaderDropdownOpen(false);
+            }}
+          />
+          {headerSearching && <span style={{ position: "absolute", right: 8, top: 6, fontSize: 11, color: T.dim }}>...</span>}
+          {headerDropdownOpen && headerResults.length > 0 && (
+            <div ref={headerDropdownRef} style={{
+              position: "absolute", top: "100%", left: 0, width: 320, maxHeight: 300,
+              overflowY: "auto", background: T.raised, border: `1px solid ${T.borderL}`,
+              borderRadius: 4, marginTop: 4, zIndex: 9999, boxShadow: "0 4px 12px rgba(0,0,0,.5)",
+            }}>
+              {headerResults.map(r => (
+                <div key={r.id} onClick={() => selectHeaderResult(r)}
+                  style={{
+                    padding: "6px 10px", cursor: "pointer", display: "flex", alignItems: "baseline", gap: 8,
+                    borderBottom: `1px solid ${T.border}`,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <span style={{ fontWeight: 600, color: T.bright, fontSize: T.md }}>{r.lemma}</span>
+                  <span style={{ fontSize: 11, color: POS_CLR[r.pos] || T.dim }}>{r.pos}</span>
+                  <span style={{ fontSize: 12, color: T.dim, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_def}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div style={{ flex: 1 }} />
         {selectedWord && (
           <span style={{ fontSize: 13, color: T.dim }}>
