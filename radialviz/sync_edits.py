@@ -109,17 +109,29 @@ def push_edits(edits, token, api_url):
     import urllib.request
     import urllib.error
 
-    payload = {
-        "edits": [
-            {
-                "action": row["action"],
-                "family_id": row["family_id"],
-                "lemma_id": row["lemma_id"],
-                "detail": json.loads(row["detail"]) if row["detail"] else {},
-            }
-            for row in edits
-        ]
-    }
+    translated = []
+    for row in edits:
+        action = row["action"]
+        detail = json.loads(row["detail"]) if row["detail"] else {}
+
+        # Translate local action names to what the server expects
+        if action == "link_families":
+            action = "create_link"
+            detail = {"other_family_id": detail.get("other_id"), "link_type": detail.get("link_type", "related")}
+        elif action == "unlink_families":
+            action = "remove_link"
+            detail = {"other_family_id": detail.get("other_id")}
+        elif action == "SPLIT":
+            action = "split_family"
+
+        translated.append({
+            "action": action,
+            "family_id": row["family_id"],
+            "lemma_id": row["lemma_id"],
+            "detail": detail,
+        })
+
+    payload = {"edits": translated}
 
     req = urllib.request.Request(
         f"{api_url}/api/admin/sync",
@@ -127,6 +139,8 @@ def push_edits(edits, token, api_url):
         headers={
             "Content-Type": "application/json",
             "X-Admin-Token": token,
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
         },
         method="POST",
     )

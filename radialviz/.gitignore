@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# Claude
+.claude/
+
 # Python
 __pycache__/
 *.pyc
@@ -21,3 +24,4 @@ build/
 .last_sync_id
 radialviz/greek_vocab.db.gz
 radialviz/greek_vocab.db.bak_verbal_adj
+radialviz/greek_vocab.db.backup
