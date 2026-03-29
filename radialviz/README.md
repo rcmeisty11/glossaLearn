@@ -2,7 +2,7 @@
 
 A Greek vocabulary explorer for studying Ancient Greek texts. Browse vocabulary by author and work, explore morphological forms, and visualize derivational word families through an interactive radial tree.
 
-**Author:** Craig Randall (randallcraigmeister@gmail.com)
+**Author:** Randall Craig Meister (randallcraigmeister@gmail.com)
 
 This project was developed with the assistance of [Claude Code](https://claude.ai/claude-code) by Anthropic.
 
