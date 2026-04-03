@@ -9,7 +9,8 @@ import Flashcard from './components/flashcard';
 import Perception from './components/perception';
 import { ReactMediaRecorder } from "react-media-recorder";
 
-const API = import.meta.env.PROD ? "https://apiaws.glossalearn.com/api" : "http://127.0.0.1:5000/api";
+const BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:5000";
+const API = BASE + "/api";
 
 const T = {
   bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
@@ -2528,7 +2529,7 @@ export default function App() {
   const languages = ['arabic', 'english', 'greek'];
   async function getProductionTask() {
     try {
-      const response = await fetch("http://localhost:5000/get_production_task?language=" + languages[language], {
+      const response = await fetch(`${BASE}/get_production_task?language=${languages[language]}`, {
         method: "GET",
       });
 
@@ -2553,7 +2554,7 @@ export default function App() {
     formData.append("language", languages[language]);
 
     try {
-      const response = await fetch("http://localhost:5000/transcribe", {
+      const response = await fetch(`${BASE}/transcribe`, {
         method: "POST",
         body: formData
       });
@@ -2573,7 +2574,7 @@ export default function App() {
   const fetchTask = async () => {
     try {
       const params = languages[language] == 'arabic' ? "?arabic=1" : "?english=1";
-      const response = await fetch(`http://localhost:5000/get_perception_task${params}`);
+      const response = await fetch(`${BASE}/get_perception_task${params}`);
       console.log(response);
       const blob = await response.blob();
       setAudioUrl(URL.createObjectURL(blob));
