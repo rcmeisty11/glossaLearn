@@ -359,3 +359,17 @@ The Morpheus data is licensed under a [Creative Commons Attribution-ShareAlike 3
 - The Morpheus stem files are downloaded at build time and cached locally; they are not redistributed in this repository.
 
 Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](https://github.com/PerseusDL/lexica) under the same CC BY-SA 3.0 US license.
+
+## Build Scripts
+
+| Script | Description |
+|--------|-------------|
+| `build_database.py` | Constructs the database from source corpus data |
+| `improve_families.py` | Enriches derivational families using Morpheus stem data |
+| `download_greek_data.sh` | Downloads source Greek text data |
+| `fix_lexica.py` | Repairs lexicon definition data |
+| `fix_tlg_titles.py` | Corrects TLG author/title metadata |
+| `repair_database.py` | General database repair utilities |
+| `repair_families_and_titles.py` | Fixes family groupings and work titles |
+| `./speech/download_datasets.sh` | Download and index speech corpora |
+

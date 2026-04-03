@@ -31,13 +31,36 @@ import os
 from functools import wraps
 from pathlib import Path
 
-try:
-    from flask import Flask, request, jsonify, g
-    from flask_cors import CORS
-except ImportError:
-    print("ERROR: Flask not installed.")
-    print("  pip3 install flask flask-cors")
-    sys.exit(1)
+import tempfile
+import subprocess
+from flask_cors import CORS
+from pydub import AudioSegment
+from io import BytesIO
+import base64
+
+from flask import Flask, request, jsonify, send_file, g
+
+from openai import OpenAI
+from collections import defaultdict
+import random
+
+client = OpenAI()
+
+languages = defaultdict(list)
+
+def init_language(language):
+    with open(f'datasets/{language}.directory', "r", encoding="utf-8") as f:
+        for line in f.readlines():
+            trans, dir = line.split('|')
+            trans = trans.strip()
+            dir = dir.strip()
+            languages[language].append({'file': dir, 'transcription': trans})
+
+def startup_task():
+    init_language('english')
+    init_language('arabic')
+
+startup_task()
 
 DB_PATH = Path(os.environ.get("DB_PATH", "./greek_vocab.db"))
 
@@ -1581,6 +1604,88 @@ def get_linked_families(family_id):
         linked.append(fam_dict)
 
     return jsonify({"linked_families": linked})
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+
+    if "file" not in request.files:
+        return jsonify({"error": "no file field"}), 400
+
+    file = request.files["file"]
+
+    tmpdir = tempfile.mkdtemp()
+
+    input_path = os.path.join(tmpdir, "input.webm")
+    wav_path = os.path.join(tmpdir, "audio.wav")
+    file.save(input_path)
+    if not os.path.exists(input_path):
+        return jsonify({"error": "file not saved"}), 500
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", input_path,
+        "-ar", "16000",
+        "-ac", "1",
+        wav_path
+    ]
+
+    subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    if not os.path.exists(wav_path):
+        return jsonify({"error": "ffmpeg conversion failed"}), 500
+
+
+    language = "en"
+    if request.form.get("language").strip() == 'arabic':
+        language = 'ar'
+
+    with open(wav_path, "rb") as audio:
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-transcribe",
+            file=audio,
+            language=language
+        )
+
+
+    return jsonify({
+        "text": transcript.text
+    })
+
+@app.route("/get_perception_task", methods=["GET"])
+def get_perception_task():
+    item = random.choice(languages['arabic'] if request.args.get("arabic") else languages['english'])
+
+    file_path = item["file"]
+    transcription = item["transcription"]
+
+    audio = AudioSegment.from_file(file_path)
+
+    mp3_buffer = BytesIO()
+    audio.export(mp3_buffer, format="mp3", bitrate="192k")
+    mp3_buffer.seek(0)
+
+    response = send_file(
+        mp3_buffer,
+        mimetype="audio/mpeg",
+        as_attachment=False,
+        download_name="audio.mp3"
+    )
+
+    response.headers["X-Transcription"] = base64.b64encode(bytes(transcription, 'utf-8')).decode("ascii")
+    response.headers["Access-Control-Expose-Headers"] = "X-Transcription"
+    return response
+
+@app.route("/get_production_task", methods=["GET"])
+def get_production_task():
+    transcription = random.choice(languages['arabic'] if request.args.get("language") == 'arabic' else languages['english'])["transcription"]
+    
+    return jsonify({
+        "text": base64.b64encode(bytes(transcription, 'utf-8')).decode("ascii")
+    })
 
 
 # ═══════════════════════════════════════════════════════════════
