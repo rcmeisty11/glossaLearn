@@ -36,7 +36,7 @@ for filename in os.listdir(INPUT_DIR):
     with open(in_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    converted = f'{buckwalter_to_arabic(content)} | datasets/arabic/arabic-speech-corpus/wav/{filename.replace('lab', 'wav')}\n'
+    converted = f'{buckwalter_to_arabic(content)} | datasets/arabic/arabic-speech-corpus/wav/{filename.replace("lab", "wav")}\n'
     res += converted
 with open(os.path.join(OUTPUT_DIR, "arabic.directory"), "w", encoding="utf-8") as f:
         f.write(res)

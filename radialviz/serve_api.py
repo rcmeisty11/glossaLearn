@@ -40,21 +40,27 @@ import base64
 
 from flask import Flask, request, jsonify, send_file, g
 
-from openai import OpenAI
 from collections import defaultdict
 import random
 
-client = OpenAI()
+try:
+    from openai import OpenAI
+    client = OpenAI()
+except Exception:
+    client = None
 
 languages = defaultdict(list)
 
 def init_language(language):
-    with open(f'datasets/{language}.directory', "r", encoding="utf-8") as f:
-        for line in f.readlines():
-            trans, dir = line.split('|')
-            trans = trans.strip()
-            dir = dir.strip()
-            languages[language].append({'file': dir, 'transcription': trans})
+    try:
+        with open(f'datasets/{language}.directory', "r", encoding="utf-8") as f:
+            for line in f.readlines():
+                trans, dir = line.split('|')
+                trans = trans.strip()
+                dir = dir.strip()
+                languages[language].append({'file': dir, 'transcription': trans})
+    except FileNotFoundError:
+        pass
 
 def startup_task():
     init_language('english')
