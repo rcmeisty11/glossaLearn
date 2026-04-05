@@ -9,18 +9,20 @@ import Flashcard from './components/flashcard';
 import Perception from './components/perception';
 import { ReactMediaRecorder } from "react-media-recorder";
 
+const ELIDE_SPEECH_TRAINING = import.meta.env.SKIP_SPEECH;
+
 const BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:5000";
 const API = BASE + "/api";
 
 const T = {
-  bg:"#0e0d0b", surface:"#1a1815", raised:"#211f1a",
-  hover:"#2f2d28", border:"#302c25", borderL:"#3d372e",
-  text:"#c8bfa8", dim:"#8a7f6e", bright:"#efe6d0",
-  gold:"#d4a843", goldDim:"#a68432", goldGlow:"rgba(212,168,67,0.10)",
-  red:"#c4574a", blue:"#5a8fb4", green:"#6b9c6b",
-  purple:"#8b6fa8", teal:"#5a9e94", orange:"#c4864a",
-  rose:"#b4697a", cyan:"#5aafb4",
-  font:"'EB Garamond',Georgia,serif",
+  bg: "#0e0d0b", surface: "#1a1815", raised: "#211f1a",
+  hover: "#2f2d28", border: "#302c25", borderL: "#3d372e",
+  text: "#c8bfa8", dim: "#8a7f6e", bright: "#efe6d0",
+  gold: "#d4a843", goldDim: "#a68432", goldGlow: "rgba(212,168,67,0.10)",
+  red: "#c4574a", blue: "#5a8fb4", green: "#6b9c6b",
+  purple: "#8b6fa8", teal: "#5a9e94", orange: "#c4864a",
+  rose: "#b4697a", cyan: "#5aafb4",
+  font: "'EB Garamond',Georgia,serif",
   // Font size scale — bump everything up for readability
   xs: 13, sm: 14, md: 16, lg: 18, xl: 26,
 };
@@ -1049,7 +1051,7 @@ function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
 /* ═══════════════════════════════════════════════════
    FORMS / DETAIL PANEL
    ═══════════════════════════════════════════════════ */
-function FormsPanel({ lemmaId, workId, scope }) {
+function FormsPanel({ lemmaId, workId, scope, language }) {
   const activeWorkId = scope === "work" && workId ? workId : null;
   // we need to relocate all of these to some 'api' file/directory
   // this is not scalable
@@ -1088,12 +1090,22 @@ function FormsPanel({ lemmaId, workId, scope }) {
   );
   if (!data) return null;
 
-  const tabs = [
+  let tabs = [
     { id: "forms", label: "Forms", n: data.forms?.length || 0 },
     { id: "works", label: "Works", n: data.top_works?.length || 0 },
     { id: "defs", label: "Defs", n: data.definitions?.length || 0 },
     { id: "sents", label: "Sents" },
+    { id: "production", label: "Pronounce" },
   ];
+
+  if (ELIDE_SPEECH_TRAINING) {
+    tabs = [
+      { id: "forms", label: "Forms", n: data.forms?.length || 0 },
+      { id: "works", label: "Works", n: data.top_works?.length || 0 },
+      { id: "defs", label: "Defs", n: data.definitions?.length || 0 },
+      { id: "sents", label: "Sents" },
+    ];
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1183,6 +1195,7 @@ function FormsPanel({ lemmaId, workId, scope }) {
         )}
 
         {tab === "sents" && <SentencesTab lemmaId={lemmaId} lemma={data.lemma} works={data.top_works} activeWorkId={activeWorkId || workId} />}
+        {tab === "production" && <ProductionTraining language={2} toPronounce={data.lemma} />}
       </div>
     </div>
   );
@@ -2302,6 +2315,105 @@ function SuperuserSearch({ familyId, familyMembers, onDone }) {
   );
 }
 
+
+function decodeB64String(str) {
+  const binary = atob(str);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+
+const languages = ['arabic', 'english', 'greek'];
+
+function ProductionTraining({ language, toPronounce }) {
+  console.log("lang", language);
+  const [toSay, setToSay] = useState(toPronounce);
+  const [mediaBlobUrl, setMediaBlobUrl] = useState('');
+  const [lastWordsUttered, setlastWordsUttered] = useState('');
+  const [recording, setRecording] = useState(false);
+  async function getProductionTask() {
+    try {
+      const response = await fetch(`${BASE}/get_production_task?language=${languages[language]}`, {
+        method: "GET",
+      });
+
+      const data = await response.json();
+      return decodeB64String(data.text);
+    } catch (err) {
+      console.log("failed to get production task:", err);
+      return null;
+    }
+  }
+  async function sendAudioToServer(blob) {
+    const copy = await fetch(blob).then((r) => r.blob());
+    const formData = new FormData();
+    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
+    formData.append("language", languages[language]);
+
+    try {
+      const response = await fetch(`${BASE}/transcribe`, {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      console.log(data);
+      // TODO: remove after demo
+      setlastWordsUttered(data.text);
+      return data.text;
+    } catch (err) {
+      console.log("Failed to send audio:", err);
+      return null;
+    }
+  }
+  return (
+    <>
+      {!toPronounce && <button style={{
+        padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+        letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+        background: false ? clr : "transparent",
+        color: 'white',
+        border: `1px solid ${false ? clr : T.borderL}`,
+        opacity: false ? 1 : 0.6,
+        width: '10%'
+      }}
+        onClick={async () => {
+          setToSay(await getProductionTask())
+          setlastWordsUttered('');
+        }}>Get New Production Task</button>}
+      <ReactMediaRecorder
+        render={({ status, startRecording, stopRecording, mediaBlobUrl: blobUrl }) => {
+          console.log(blobUrl);
+          if (typeof blobUrl !== 'undefined') {
+            setMediaBlobUrl(blobUrl);
+          }
+          return (
+            <div>
+              <button style={{
+                padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+                letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+                background: false ? clr : "transparent",
+                color: 'white',
+                border: `1px solid ${false ? clr : T.borderL}`,
+                opacity: false ? 1 : 0.6,
+              }}
+                onClick={(e) => {
+                  const innerRec = recording;
+                  setRecording(!innerRec);
+                  return innerRec ? stopRecording(e) : startRecording(e);
+                }}>{recording ? 'Stop' : 'Start'} Recording</button>
+              <div>
+                {blobUrl && <video src={blobUrl} controls autoPlay loop />}</div>
+            </div>
+          )
+        }}
+      />
+
+      <Flashcard callback={() => sendAudioToServer(mediaBlobUrl)} toSay={toSay} lastWordsUttered={lastWordsUttered} />
+    </>
+  )
+}
+
 /* ═══════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════ */
@@ -2336,7 +2448,7 @@ export default function App() {
   useEffect(() => {
     const handler = (e) => {
       if (headerSearchRef.current && !headerSearchRef.current.contains(e.target) &&
-          headerDropdownRef.current && !headerDropdownRef.current.contains(e.target)) {
+        headerDropdownRef.current && !headerDropdownRef.current.contains(e.target)) {
         setHeaderDropdownOpen(false);
       }
     };
@@ -2372,7 +2484,10 @@ export default function App() {
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
   const [headerExpanded, setHeaderExpanded] = useState(false);
-  const views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  let views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  if (ELIDE_SPEECH_TRAINING) {
+    views = ['Vocabulary Explorer'];
+  }
   const [currentView, setCurrentView] = useState(0);
 
 
@@ -2518,55 +2633,11 @@ export default function App() {
 
 
   // TODO: pull into separate view jsx
-  const [toSay, setToSay] = useState('');
   const [language, setLanguage] = useState(0);
-  const [mediaBlobUrl, setMediaBlobUrl] = useState('');
-  const [lastWordsUttered, setlastWordsUttered] = useState('');
   const [audioUrl, setAudioUrl] = useState(null);
   const [transcription, setTranscription] = useState("");
-  const [recording, setRecording] = useState(false);
   const videoRef = useRef(null);
-  const languages = ['arabic', 'english', 'greek'];
-  async function getProductionTask() {
-    try {
-      const response = await fetch(`${BASE}/get_production_task?language=${languages[language]}`, {
-        method: "GET",
-      });
 
-      const data = await response.json();
-      return decodeB64String(data.text);
-    } catch (err) {
-      console.log("failed to get production task:", err);
-      return null;
-    }
-  }
-  function decodeB64String(str) {
-    const binary = atob(str);
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    return new TextDecoder("utf-8").decode(bytes);
-  }
-  async function sendAudioToServer(blob) {
-    const copy = await fetch(blob).then((r) => r.blob());
-    const formData = new FormData();
-    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
-    formData.append("language", languages[language]);
-
-    try {
-      const response = await fetch(`${BASE}/transcribe`, {
-        method: "POST",
-        body: formData
-      });
-
-      const data = await response.json();
-      console.log(data);
-      // TODO: remove after demo
-      setlastWordsUttered(data.text);
-      return data.text;
-    } catch (err) {
-      console.log("Failed to send audio:", err);
-      return null;
-    }
-  }
 
   const fetchTask = async () => {
     try {
@@ -2602,7 +2673,7 @@ export default function App() {
         display: "flex", alignItems: "center", gap: 10, flexShrink: 0
       }}>
         <span style={{ fontSize: 20, fontWeight: 700, color: T.bright, letterSpacing: 1 }}>ΓΛΩΣΣΑ</span>
-        <span style={{ cursor: 'pointer' }} onClick={() => setHeaderExpanded(!headerExpanded)}>{headerExpanded ? "▾" : "▸"}</span>
+        {!ELIDE_SPEECH_TRAINING && <span style={{ cursor: 'pointer' }} onClick={() => setHeaderExpanded(!headerExpanded)}>{headerExpanded ? "▾" : "▸"}</span>}
         <div>
           <div style={{ fontSize: 13, color: T.dim, letterSpacing: 1, textAlign: 'center' }}>{views[currentView]}
           </div>
@@ -2760,7 +2831,7 @@ export default function App() {
               <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
             </div>
           )}
-          
+
 
           {/* CENTER: Family tree */}
           <div ref={centerRef} style={{
@@ -2829,35 +2900,35 @@ export default function App() {
               borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface
             }}>
               {hasWorkFilter && (
-            <div>
-              <span style={{ fontSize: 11, color: T.dim }}>Scope:</span>
-              {["all", "work"].map(s => (
-                <button key={s} onClick={() => setFamilyScope(s)} style={{
-                  background: familyScope === s ? T.bright : "transparent",
-                  color: familyScope === s ? T.bg : T.dim,
-                  border: `1px solid ${familyScope === s ? T.bright : T.borderL}`,
-                  borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                }}>{s === "all" ? "All Works" : "This Work"}</button>
-              ))}
-              {familyScope === "work" && family && (
-                <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>
-                  ({family.members.length} of {familyAll?.members?.length || 0} members)
-                </span>
+                <div>
+                  <span style={{ fontSize: 11, color: T.dim }}>Scope:</span>
+                  {["all", "work"].map(s => (
+                    <button key={s} onClick={() => setFamilyScope(s)} style={{
+                      background: familyScope === s ? T.bright : "transparent",
+                      color: familyScope === s ? T.bg : T.dim,
+                      border: `1px solid ${familyScope === s ? T.bright : T.borderL}`,
+                      borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    }}>{s === "all" ? "All Works" : "This Work"}</button>
+                  ))}
+                  {familyScope === "work" && family && (
+                    <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>
+                      ({family.members.length} of {familyAll?.members?.length || 0} members)
+                    </span>
+                  )}
+                </div>
               )}
-            </div>
-          )}
               <div><span style={{ fontSize: 11, color: T.dim }}>View:</span>
-              {["tree", "sunburst"].map(m => (
-                <button key={m} onClick={() => setVizMode(m)} style={{
-                  background: vizMode === m ? T.bright : "transparent",
-                  color: vizMode === m ? T.bg : T.dim,
-                  border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
-                  borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
-              ))}</div>
-              
+                {["tree", "sunburst"].map(m => (
+                  <button key={m} onClick={() => setVizMode(m)} style={{
+                    background: vizMode === m ? T.bright : "transparent",
+                    color: vizMode === m ? T.bg : T.dim,
+                    border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
+                    borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
+                ))}</div>
+
             </div>
-            
+
             <div style={{ flex: 1, position: "relative" }}>
               {vizMode === "sunburst" ? (
                 <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
@@ -2878,8 +2949,8 @@ export default function App() {
 
           {/* RIGHT: Details */}
           <CollapsiblePanel side="right" label="DETAILS"
-            expandedWidth={300} pinned={rightPinned} onTogglePin={() => setRightPinned(p => !p)}>
-            <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} scope={familyScope} />
+            expandedWidth={350} pinned={rightPinned} onTogglePin={() => setRightPinned(p => !p)}>
+            <FormsPanel lemmaId={detailWord?.id} workId={[...selectedWorks][0] || null} scope={familyScope} language={language} />
           </CollapsiblePanel>
         </div>
 
@@ -2925,50 +2996,7 @@ export default function App() {
       </>}
 
 
-      {currentView === 1 && <>
-        <button style={{
-          padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
-          letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
-          background: false ? clr : "transparent",
-          color: 'white',
-          border: `1px solid ${false ? clr : T.borderL}`,
-          opacity: false ? 1 : 0.6,
-          width: '10%'
-        }}
-          onClick={async () => {
-            setToSay(await getProductionTask())
-            setlastWordsUttered('');
-          }}>Get New Production Task</button>
-        <ReactMediaRecorder
-          render={({ status, startRecording, stopRecording, mediaBlobUrl: blobUrl }) => {
-            console.log(blobUrl);
-            if (typeof blobUrl !== 'undefined') {
-              setMediaBlobUrl(blobUrl);
-            }
-            return (
-              <div>
-                <button style={{
-                  padding: "2px 7px", borderRadius: 3, fontSize: 11, fontWeight: 600,
-                  letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
-                  background: false ? clr : "transparent",
-                  color: 'white',
-                  border: `1px solid ${false ? clr : T.borderL}`,
-                  opacity: false ? 1 : 0.6,
-                }}
-                  onClick={(e) => {
-                    const innerRec = recording;
-                    setRecording(!innerRec);
-                    return innerRec ? stopRecording(e) : startRecording(e);
-                  }}>{recording ? 'Stop' : 'Start'} Recording</button>
-                <div>
-                  {blobUrl && <video src={blobUrl} controls autoPlay loop />}</div>
-              </div>
-            )
-          }}
-        />
-
-        <Flashcard callback={() => sendAudioToServer(mediaBlobUrl)} toSay={toSay} lastWordsUttered={lastWordsUttered} />
-      </>}
+      {currentView === 1 && <ProductionTraining language={language} />}
 
       {currentView === 2 && <>
         <div style={{ margin: '2rem' }}>
