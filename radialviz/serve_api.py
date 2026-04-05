@@ -63,9 +63,11 @@ def init_language(language):
         pass
 
 def startup_task():
-    init_language('english')
-    init_language('arabic')
-    init_language('greek')
+    # skip speech production on server if requested
+    if 'SKIP_SPEECH' not in os.environ:
+        init_language('english')
+        init_language('arabic')
+        init_language('greek')
 
 startup_task()
 

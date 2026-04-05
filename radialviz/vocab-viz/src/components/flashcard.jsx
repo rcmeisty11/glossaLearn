@@ -24,8 +24,6 @@ const T = {
 };
 
 function Flashcard({ callback, toSay, lastWordsUttered }) {
-    console.log(toSay, lastWordsUttered);
-    console.log(diffChars(toSay, lastWordsUttered));
     return (
         <div>
             {toSay && <>Produce {toSay}</>}
@@ -39,7 +37,7 @@ function Flashcard({ callback, toSay, lastWordsUttered }) {
               }} onClick={callback}>Submit</button></div>
 
             {lastWordsUttered && <div>You produced {lastWordsUttered}, </div>}
-            {lastWordsUttered && <>{diffChars(lastWordsUttered, toSay).map((part) => {
+            {lastWordsUttered && <>{diffChars(lastWordsUttered, toSay || "").map((part) => {
                 // green for additions, red for deletions
                 // grey for common parts
                 const color = part.added ? 'green' :
