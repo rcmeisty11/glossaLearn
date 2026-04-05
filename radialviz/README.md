@@ -289,6 +289,73 @@ Requires `GLOSSALEARN_ADMIN_TOKEN` environment variable.
 | `MergeFamilyModal` | Search and merge families with similar roots |
 | `RenameFamilyModal` | Edit family root stem and label |
 
+## Embeddable Widget (Scaife Viewer Integration)
+
+GlossaLearn includes a lightweight embeddable widget designed for integration into external reading environments such as the [Scaife Viewer](https://scaife.perseus.org/). The widget displays the derivational family visualization for a given Greek word, with both tree and sunburst view modes.
+
+### Widget Files
+
+| File | Purpose |
+|------|---------|
+| `vocab-viz/widget.html` | Separate HTML entry point for the widget |
+| `vocab-viz/src/widget-main.jsx` | Minimal React bootstrap for the widget |
+| `vocab-viz/src/EmbedSunburst.jsx` | Widget component: data fetching, tree + sunburst rendering, postMessage communication |
+| `vocab-viz/src/embed-theme.js` | Light theme matching Scaife Viewer's color palette |
+
+The widget is built as a second Vite entry point alongside the main app. It produces a separate, small bundle (~7 KB gzipped) and shares no runtime code with the main GlossaLearn application. Changes to the main app do not affect the widget, and vice versa.
+
+### Usage
+
+Embed the widget as an iframe, passing a Greek lemma as a query parameter:
+
+```html
+<iframe src="https://glossalearn.com/widget.html?lemma=λόγος"
+        style="width: 100%; height: 400px; border: none;"
+        sandbox="allow-scripts allow-same-origin"></iframe>
+```
+
+The default view mode is tree. To start in sunburst mode, add `&mode=sunburst` to the URL.
+
+### postMessage API
+
+The widget communicates with the parent page via `postMessage`, allowing dynamic word changes without reloading the iframe.
+
+**Parent to widget** — change the displayed word:
+
+```js
+iframe.contentWindow.postMessage(
+  { type: 'glossalearn:setLemma', lemma: 'φύσις' },
+  'https://glossalearn.com'
+);
+```
+
+**Widget to parent** — events emitted by the widget:
+
+| Message Type | Payload | Description |
+|-------------|---------|-------------|
+| `glossalearn:ready` | `{}` | Widget has loaded and is ready to receive messages |
+| `glossalearn:selectWord` | `{ lemma, id, pos }` | User clicked a word node in the visualization |
+| `glossalearn:error` | `{ message }` | Word not found or API unreachable |
+
+### Features
+
+- **Tree and sunburst views** with a toggle in the top-right corner
+- **Linked families** — in tree mode, nodes that belong to multiple families show a ⟷ badge; clicking it expands the linked family
+- **Pan and zoom** — mouse drag to pan, scroll to zoom
+- **Light theme** — white background with terracotta accent (#b45141) and Noto Serif font, designed to blend with the Scaife Viewer interface
+- Pulls data from the same production API (`apiaws.glossalearn.com`) — no separate backend required
+
+### Local Development
+
+```bash
+cd vocab-viz && npm run dev
+# Open http://localhost:5173/widget.html?lemma=λόγος
+```
+
+### Build
+
+The widget is included in the standard build. Running `npm run build` produces both `dist/index.html` (main app) and `dist/widget.html` (widget) with separate JS bundles.
+
 ## Build & Data Scripts
 
 | Script | Description |
