@@ -65,6 +65,7 @@ def init_language(language):
 def startup_task():
     init_language('english')
     init_language('arabic')
+    init_language('greek')
 
 startup_task()
 
@@ -1648,6 +1649,8 @@ def transcribe():
     language = "en"
     if request.form.get("language").strip() == 'arabic':
         language = 'ar'
+    if request.form.get("language").strip() == 'greek':
+        language = 'el'
 
     with open(wav_path, "rb") as audio:
         transcript = client.audio.transcriptions.create(
@@ -1663,7 +1666,15 @@ def transcribe():
 
 @app.route("/get_perception_task", methods=["GET"])
 def get_perception_task():
-    item = random.choice(languages['arabic'] if request.args.get("arabic") else languages['english'])
+
+    item_key = 'english'
+    if request.args.get("arabic") is not None:
+        item_key = 'arabic'
+    if request.args.get("greek") is not None:
+        item_key = 'greek'
+
+
+    item = random.choice(languages[item_key])
 
     file_path = item["file"]
     transcription = item["transcription"]
@@ -1687,7 +1698,7 @@ def get_perception_task():
 
 @app.route("/get_production_task", methods=["GET"])
 def get_production_task():
-    transcription = random.choice(languages['arabic'] if request.args.get("language") == 'arabic' else languages['english'])["transcription"]
+    transcription = random.choice(languages[request.args.get("language")])["transcription"]
     
     return jsonify({
         "text": base64.b64encode(bytes(transcription, 'utf-8')).decode("ascii")
