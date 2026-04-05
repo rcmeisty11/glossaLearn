@@ -15,9 +15,12 @@ if [ ! -f "$ENGLISH_SPEECH_CORPUS" ]; then
   wget -P ./datasets https://openslr.trmal.net/resources/12/dev-clean.tar.gz
 fi
 
+mkdir ./datasets/greek
 mkdir ./datasets/arabic
 mkdir ./datasets/english
 
+unzip $PWD/speech/archive.zip -d $PWD/datasets/greek
+python ./speech/gen-greek-directory.py
 unzip $PWD/datasets/arabic-speech-corpus.zip -d $PWD/datasets/arabic
 tar -xzf ./datasets/dev-clean.tar.gz -C ./datasets/english
 

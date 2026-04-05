@@ -2534,8 +2534,6 @@ export default function App() {
       });
 
       const data = await response.json();
-      // demo only, i don't want to blabber
-      return 'القدس';
       return decodeB64String(data.text);
     } catch (err) {
       console.log("failed to get production task:", err);
@@ -2562,7 +2560,6 @@ export default function App() {
       const data = await response.json();
       console.log(data);
       // TODO: remove after demo
-      data.text = 'الكدس';
       setlastWordsUttered(data.text);
       return data.text;
     } catch (err) {
@@ -2573,7 +2570,7 @@ export default function App() {
 
   const fetchTask = async () => {
     try {
-      const params = languages[language] == 'arabic' ? "?arabic=1" : "?english=1";
+      const params = '?' + languages[language] + '=1';
       const response = await fetch(`${BASE}/get_perception_task${params}`);
       console.log(response);
       const blob = await response.blob();
