@@ -9,6 +9,8 @@ import Flashcard from './components/flashcard';
 import Perception from './components/perception';
 import { ReactMediaRecorder } from "react-media-recorder";
 
+const ELIDE_SPEECH_TRAINING = import.meta.env.SKIP_SPEECH;
+
 const BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:5000";
 const API = BASE + "/api";
 
@@ -1088,13 +1090,22 @@ function FormsPanel({ lemmaId, workId, scope, language }) {
   );
   if (!data) return null;
 
-  const tabs = [
+  let tabs = [
     { id: "forms", label: "Forms", n: data.forms?.length || 0 },
     { id: "works", label: "Works", n: data.top_works?.length || 0 },
     { id: "defs", label: "Defs", n: data.definitions?.length || 0 },
     { id: "sents", label: "Sents" },
     { id: "production", label: "Pronounce" },
   ];
+
+  if (ELIDE_SPEECH_TRAINING) {
+    tabs = [
+      { id: "forms", label: "Forms", n: data.forms?.length || 0 },
+      { id: "works", label: "Works", n: data.top_works?.length || 0 },
+      { id: "defs", label: "Defs", n: data.definitions?.length || 0 },
+      { id: "sents", label: "Sents" },
+    ];
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -2473,7 +2484,10 @@ export default function App() {
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
   const [headerExpanded, setHeaderExpanded] = useState(false);
-  const views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  let views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  if (ELIDE_SPEECH_TRAINING) {
+    views = ['Vocabulary Explorer'];
+  }
   const [currentView, setCurrentView] = useState(0);
 
 
@@ -2659,7 +2673,7 @@ export default function App() {
         display: "flex", alignItems: "center", gap: 10, flexShrink: 0
       }}>
         <span style={{ fontSize: 20, fontWeight: 700, color: T.bright, letterSpacing: 1 }}>ΓΛΩΣΣΑ</span>
-        <span style={{ cursor: 'pointer' }} onClick={() => setHeaderExpanded(!headerExpanded)}>{headerExpanded ? "▾" : "▸"}</span>
+        {!ELIDE_SPEECH_TRAINING && <span style={{ cursor: 'pointer' }} onClick={() => setHeaderExpanded(!headerExpanded)}>{headerExpanded ? "▾" : "▸"}</span>}
         <div>
           <div style={{ fontSize: 13, color: T.dim, letterSpacing: 1, textAlign: 'center' }}>{views[currentView]}
           </div>
