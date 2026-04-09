@@ -2358,8 +2358,7 @@ function ProductionTraining({ language, toPronounce }) {
 
       const data = await response.json();
       console.log(data);
-      // TODO: remove after demo
-      setlastWordsUttered(data.text);
+      setlastWordsUttered(data.text.toLocaleLowerCase('el').toLocaleLowerCase('en'));
       return data.text;
     } catch (err) {
       console.log("Failed to send audio:", err);
@@ -2378,7 +2377,7 @@ function ProductionTraining({ language, toPronounce }) {
         width: '10%'
       }}
         onClick={async () => {
-          setToSay(await getProductionTask())
+          setToSay((await getProductionTask()).toLocaleLowerCase('el').toLocaleLowerCase('en'))
           setlastWordsUttered('');
         }}>Get New Production Task</button>}
       <ReactMediaRecorder
