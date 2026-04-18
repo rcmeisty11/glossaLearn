@@ -26,4 +26,3 @@ datasets/
 .env
 .admin_token
 .last_sync_id
-.claude/
