@@ -13,6 +13,7 @@ node_modules/
 dist/
 build/
 datasets/
+datasets-backup
 
 # Local databases / large artifacts
 *.db

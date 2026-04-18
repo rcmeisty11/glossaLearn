@@ -31,13 +31,45 @@ import os
 from functools import wraps
 from pathlib import Path
 
+import tempfile
+import subprocess
+from flask_cors import CORS
+from pydub import AudioSegment
+from io import BytesIO
+import base64
+
+from flask import Flask, request, jsonify, send_file, g
+
+from collections import defaultdict
+import random
+
 try:
-    from flask import Flask, request, jsonify, g
-    from flask_cors import CORS
-except ImportError:
-    print("ERROR: Flask not installed.")
-    print("  pip3 install flask flask-cors")
-    sys.exit(1)
+    from openai import OpenAI
+    client = OpenAI()
+except Exception:
+    client = None
+
+languages = defaultdict(list)
+
+def init_language(language):
+    try:
+        with open(f'datasets/{language}.directory', "r", encoding="utf-8") as f:
+            for line in f.readlines():
+                trans, dir = line.split('|')
+                trans = trans.strip()
+                dir = dir.strip()
+                languages[language].append({'file': dir, 'transcription': trans})
+    except FileNotFoundError:
+        pass
+
+def startup_task():
+    # skip speech production on server if requested
+    if 'SKIP_SPEECH' not in os.environ:
+        init_language('english')
+        init_language('arabic')
+        init_language('greek')
+
+startup_task()
 
 DB_PATH = Path(os.environ.get("DB_PATH", "./greek_vocab.db"))
 
@@ -1581,6 +1613,98 @@ def get_linked_families(family_id):
         linked.append(fam_dict)
 
     return jsonify({"linked_families": linked})
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+
+    if "file" not in request.files:
+        return jsonify({"error": "no file field"}), 400
+
+    file = request.files["file"]
+
+    tmpdir = tempfile.mkdtemp()
+
+    input_path = os.path.join(tmpdir, "input.webm")
+    wav_path = os.path.join(tmpdir, "audio.wav")
+    file.save(input_path)
+    if not os.path.exists(input_path):
+        return jsonify({"error": "file not saved"}), 500
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", input_path,
+        "-ar", "16000",
+        "-ac", "1",
+        wav_path
+    ]
+
+    subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    if not os.path.exists(wav_path):
+        return jsonify({"error": "ffmpeg conversion failed"}), 500
+
+
+    language = "en"
+    if request.form.get("language").strip() == 'arabic':
+        language = 'ar'
+    if request.form.get("language").strip() == 'greek':
+        language = 'el'
+
+    with open(wav_path, "rb") as audio:
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-transcribe",
+            file=audio,
+            language=language
+        )
+
+
+    return jsonify({
+        "text": transcript.text
+    })
+
+@app.route("/get_perception_task", methods=["GET"])
+def get_perception_task():
+
+    item_key = 'english'
+    if request.args.get("arabic") is not None:
+        item_key = 'arabic'
+    if request.args.get("greek") is not None:
+        item_key = 'greek'
+
+
+    item = random.choice(languages[item_key])
+
+    file_path = item["file"]
+    transcription = item["transcription"]
+
+    audio = AudioSegment.from_file(file_path)
+
+    mp3_buffer = BytesIO()
+    audio.export(mp3_buffer, format="mp3", bitrate="192k")
+    mp3_buffer.seek(0)
+
+    response = send_file(
+        mp3_buffer,
+        mimetype="audio/mpeg",
+        as_attachment=False,
+        download_name="audio.mp3"
+    )
+
+    response.headers["X-Transcription"] = base64.b64encode(bytes(transcription, 'utf-8')).decode("ascii")
+    response.headers["Access-Control-Expose-Headers"] = "X-Transcription"
+    return response
+
+@app.route("/get_production_task", methods=["GET"])
+def get_production_task():
+    transcription = random.choice(languages[request.args.get("language")])["transcription"]
+    
+    return jsonify({
+        "text": base64.b64encode(bytes(transcription, 'utf-8')).decode("ascii")
+    })
 
 
 # ═══════════════════════════════════════════════════════════════
