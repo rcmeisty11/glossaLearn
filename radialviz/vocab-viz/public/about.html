@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About - GlossaLearn</title>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: #0e0d0b;
+      color: #c8bfa8;
+      font-family: 'EB Garamond', Georgia, serif;
+      font-size: 16px;
+      line-height: 1.75;
+    }
+    a { color: #d4a843; text-decoration: none; }
+    a:hover { color: #efe6d0; }
+
+    header {
+      border-bottom: 1px solid #302c25;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo { font-size: 20px; font-weight: 700; color: #efe6d0; letter-spacing: 1px; }
+    .subtitle { font-size: 13px; color: #8a7f6e; letter-spacing: 1px; }
+    .back-link {
+      font-size: 11px; letter-spacing: 1.5px; color: #8a7f6e;
+      font-family: 'JetBrains Mono', monospace; font-weight: 600;
+      padding: 4px 12px; border-radius: 3px;
+      border: 1px solid #302c25;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .back-link:hover { color: #d4a843; border-color: #a68432; }
+
+    .content { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    h1 { font-size: 26px; font-weight: 700; color: #efe6d0; margin-bottom: 14px; letter-spacing: 0.5px; }
+    h2 { font-size: 18px; font-weight: 700; color: #efe6d0; margin-bottom: 14px; letter-spacing: 0.5px; }
+    h3 { font-size: 18px; font-weight: 600; color: #d4a843; margin-bottom: 6px; }
+
+    p { margin-bottom: 12px; }
+    .section { margin-bottom: 40px; }
+    .step { margin-bottom: 24px; }
+    .step p { padding-left: 12px; }
+
+    .card {
+      padding: 16px;
+      background: #1a1815;
+      border-radius: 6px;
+      border: 1px solid #302c25;
+      margin-bottom: 12px;
+    }
+    .card-name { font-size: 16px; font-weight: 600; color: #efe6d0; }
+    .card-desc { font-size: 14px; color: #8a7f6e; margin-top: 4px; }
+
+    .bright { color: #efe6d0; font-weight: 600; }
+    .gold { color: #d4a843; font-weight: 600; }
+
+    ul { padding-left: 32px; list-style: none; margin-top: 8px; }
+    ul li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/" style="display:flex;align-items:center;gap:10px;">
+      <span class="logo">ΓΛΩΣΣΑ</span>
+      <span class="subtitle">Vocabulary Explorer</span>
+    </a>
+    <div style="flex:1"></div>
+    <a href="/" class="back-link">BACK TO APP</a>
+  </header>
+
+  <div class="content">
+
+    <div class="section">
+      <h1>About GlossaLearn</h1>
+      <p>
+        GlossaLearn is an interactive vocabulary explorer for ancient Greek texts. It visualizes
+        word families as derivational trees, helping students and scholars see how Greek words
+        relate to one another through shared roots, prefixes, and suffixes.
+      </p>
+      <p>
+        The database spans a growing corpus of ancient Greek literature, with each word
+        lemmatized and linked to its morphological forms, dictionary definitions, and
+        occurrences across texts.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>Creators</h2>
+      <div class="card">
+        <div class="card-name">Craig Meister</div>
+        <div class="card-desc">Co-creator and developer of GlossaLearn.</div>
+      </div>
+      <div class="card">
+        <div class="card-name">Erik Awwad</div>
+        <div class="card-desc">Co-creator and developer of GlossaLearn.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>How to Use</h2>
+
+      <div class="step">
+        <h3>Step 1: Choose an Author or Work</h3>
+        <p>
+          Open the left panel and select an author. Their works will appear below. Click a work
+          to load its vocabulary. You can select multiple authors or works to combine their word lists.
+        </p>
+      </div>
+
+      <div class="step">
+        <h3>Step 2: Browse the Vocabulary List</h3>
+        <p>
+          The word list shows the most frequent words from your selection. Use the sort toggle
+          to switch between <span class="bright">frequency</span> and
+          <span class="bright">alphabetical</span> order. Filter by part of speech
+          using the colored tags at the top (noun, verb, adjective, etc.). Type in the search box to
+          find a specific word.
+        </p>
+      </div>
+
+      <div class="step">
+        <h3>Step 3: Select a Word</h3>
+        <p>
+          Click any word in the list. The center panel will display its
+          <span class="bright">derivational family tree</span> &mdash; a visual map of all words
+          that share the same root. The right panel will open with detailed information about the
+          word you selected.
+        </p>
+      </div>
+
+      <div class="step">
+        <h3>Step 4: Explore the Family Tree</h3>
+        <p>
+          The tree shows how words are derived from one another. The root word sits at the center,
+          with derived forms branching outward. Click any node in the tree to see that word's details
+          in the right panel. Toggle between <span class="bright">Tree</span> and
+          <span class="bright">Sunburst</span> views using the toolbar.
+        </p>
+      </div>
+
+      <div class="step">
+        <h3>Step 5: View Word Details</h3>
+        <p>The right panel has several tabs:</p>
+        <ul>
+          <li><span class="gold">Forms</span> &mdash; all inflected forms of the word (cases, tenses, moods, etc.)</li>
+          <li><span class="gold">Works</span> &mdash; which texts the word appears in and how often</li>
+          <li><span class="gold">Definitions</span> &mdash; short definitions and full LSJ/Middle Liddell entries</li>
+          <li><span class="gold">Sentences</span> &mdash; example sentences from the corpus containing the word</li>
+        </ul>
+      </div>
+
+      <div class="step">
+        <h3>Step 6: Use Quick Search</h3>
+        <p>
+          The search bar in the top header lets you look up any Greek word directly,
+          without needing to select an author or work first. Just start typing and pick
+          from the dropdown results.
+        </p>
+      </div>
+
+      <div class="step">
+        <h3>Step 7: Filter by Scope</h3>
+        <p>
+          When you have an author or work selected, use the <span class="bright">All Works</span> /
+          <span class="bright">This Work</span> toggle above the tree to control which family members
+          are shown. &ldquo;This Work&rdquo; filters the tree to only show words that appear in your
+          selected text &mdash; useful for focused study.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

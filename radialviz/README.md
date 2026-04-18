@@ -355,7 +355,6 @@ cd vocab-viz && npm run dev
 ### Build
 
 The widget is included in the standard build. Running `npm run build` produces both `dist/index.html` (main app) and `dist/widget.html` (widget) with separate JS bundles.
-
 ## Build & Data Scripts
 
 | Script | Description |
@@ -439,4 +438,3 @@ Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](
 | `repair_database.py` | General database repair utilities |
 | `repair_families_and_titles.py` | Fixes family groupings and work titles |
 | `./speech/download_datasets.sh` | Download and index speech corpora |
-

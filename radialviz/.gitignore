@@ -12,6 +12,8 @@ __pycache__/
 node_modules/
 dist/
 build/
+datasets/
+datasets-backup
 
 # Local databases / large artifacts
 *.db
@@ -25,10 +27,3 @@ build/
 .env
 .admin_token
 .last_sync_id
-radialviz/greek_vocab.db.gz
-radialviz/greek_vocab.db.bak_verbal_adj
-
-*.db-wal
-*.db-shm
-datasets
-datasets-backup
