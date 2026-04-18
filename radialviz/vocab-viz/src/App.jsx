@@ -1954,6 +1954,186 @@ function RenameFamilyModal({ familyId, currentRoot, currentLabel, onClose, onDon
 }
 
 /* ═══════════════════════════════════════════════════
+   SUPERUSER: Edit History Panel
+   Shows recent edits with revert capability.
+   ═══════════════════════════════════════════════════ */
+const ACTION_LABELS = {
+  update_lemma: "Edit Lemma",
+  add_member: "Add Member",
+  remove_member: "Remove Member",
+  merge_families: "Merge Families",
+  update_member_relation: "Update Relation",
+  split_to_linked_family: "Split Family",
+  move_member_cross_family: "Move Member",
+  update_family: "Rename Family",
+  create_link: "Create Link",
+  delete_link: "Delete Link",
+  unlink_families: "Unlink Families",
+  update_member: "Update Member",
+  split_family: "Split Family",
+  merge: "Merge Families",
+  remove_link: "Remove Link",
+  create: "Create Family",
+};
+
+function formatAction(action) {
+  return ACTION_LABELS[action] || action.replace(/_/g, " ");
+}
+
+function EditHistoryPanel({ onClose, onRevert }) {
+  const [edits, setEdits] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [reverting, setReverting] = useState(null);
+  const [offset, setOffset] = useState(0);
+  const LIMIT = 30;
+
+  const loadEdits = useCallback((off = 0) => {
+    setLoading(true);
+    fetch(`${API}/edit-history?limit=${LIMIT}&offset=${off}`)
+      .then(r => r.json())
+      .then(data => {
+        setEdits(data.edits || []);
+        setTotal(data.total || 0);
+        setOffset(off);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadEdits(0); }, [loadEdits]);
+
+  const doRevert = (editId) => {
+    if (!confirm("Revert this edit? This will undo the change.")) return;
+    setReverting(editId);
+    fetch(`${API}/edit-history/${editId}/revert`, { method: "POST" })
+      .then(r => r.json())
+      .then(data => {
+        setReverting(null);
+        if (data.status === "ok") {
+          loadEdits(offset);
+          if (onRevert) onRevert();
+        } else {
+          alert(data.error || "Revert failed");
+        }
+      })
+      .catch(() => { setReverting(null); alert("Revert request failed"); });
+  };
+
+  const formatTime = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts + "Z");
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const formatDetail = (edit) => {
+    const parts = [];
+    if (edit.lemma_name) parts.push(edit.lemma_name);
+    if (edit.family_root && !parts.includes(edit.family_root)) parts.push(`family: ${edit.family_root}`);
+    const d = edit.detail;
+    if (d) {
+      if (d.short_def) parts.push(`def: "${d.short_def}"`);
+      if (d.relation) parts.push(`rel: ${d.relation}`);
+      if (d.merged_from) parts.push(`merged from #${d.merged_from}`);
+      if (d.other_family_id) parts.push(`linked #${d.other_family_id}`);
+    }
+    return parts.join(" · ") || "";
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+        width: 520, maxHeight: "80vh", boxShadow: "0 8px 32px rgba(0,0,0,.5)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", borderBottom: `1px solid ${T.border}`,
+        }}>
+          <span style={{ fontSize: 15, color: T.gold, fontWeight: 600 }}>Edit History</span>
+          <span style={{ fontSize: 12, color: T.dim }}>{total} total edits</span>
+        </div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+          {loading ? (
+            <div style={{ padding: 20, textAlign: "center", color: T.dim }}>Loading...</div>
+          ) : edits.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: T.dim }}>No edits recorded yet</div>
+          ) : edits.map(edit => (
+            <div key={edit.id} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "8px 16px",
+              borderBottom: `1px solid ${T.border}22`,
+              background: edit.action.startsWith("revert_") ? "rgba(107,156,107,0.06)" : "transparent",
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 600, color: edit.action.startsWith("revert_") ? T.green : T.text,
+                  }}>{formatAction(edit.action)}</span>
+                  <span style={{ fontSize: 11, color: T.dim }}>#{edit.id}</span>
+                  <span style={{ fontSize: 11, color: T.dim, marginLeft: "auto" }}>{formatTime(edit.timestamp)}</span>
+                </div>
+                <div style={{
+                  fontSize: 11, color: T.dim, marginTop: 2,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>{formatDetail(edit)}</div>
+              </div>
+              {edit.reversible && !edit.action.startsWith("revert_") && (
+                <button
+                  onClick={() => doRevert(edit.id)}
+                  disabled={reverting === edit.id}
+                  style={{
+                    background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4,
+                    padding: "3px 8px", color: T.gold, fontSize: 11, fontWeight: 600,
+                    cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                  }}
+                >{reverting === edit.id ? "..." : "Revert"}</button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Pagination + Close */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 16px", borderTop: `1px solid ${T.border}`,
+        }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            {offset > 0 && (
+              <button onClick={() => loadEdits(Math.max(0, offset - LIMIT))} style={{
+                background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                padding: "4px 10px", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Newer</button>
+            )}
+            {offset + LIMIT < total && (
+              <button onClick={() => loadEdits(offset + LIMIT)} style={{
+                background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                padding: "4px 10px", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Older</button>
+            )}
+          </div>
+          <button onClick={onClose} style={{
+            background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+            padding: "4px 14px", color: T.text, fontSize: 12, cursor: "pointer",
+          }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    SUPERUSER: Link Family Modal
    Search for another family and create a visual link.
    ═══════════════════════════════════════════════════ */
@@ -2431,6 +2611,7 @@ export default function App() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [linkedFamilies, setLinkedFamilies] = useState([]);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
@@ -2811,34 +2992,6 @@ export default function App() {
             </div>
           </CollapsiblePanel>
 
-          {/* Superuser toolbar */}
-          {superuser && family && (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 10, padding: "4px 12px",
-              background: "rgba(212,168,67,0.08)", borderBottom: `1px solid ${T.goldDim}`,
-              flexShrink: 0
-            }}>
-              <span style={{
-                fontSize: 11, fontFamily: T.mono, letterSpacing: 1.5, color: T.goldDim,
-                fontWeight: 700
-              }}>EDIT MODE</span>
-              <button onClick={() => setShowAddModal(true)} style={{
-                background: T.gold, border: "none", borderRadius: 4, padding: "3px 10px",
-                color: T.bg, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>+ Add Word</button>
-              <button onClick={() => setShowMergeModal(true)} style={{
-                background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>Merge Family</button>
-              <button onClick={() => setShowRenameModal(true)} style={{
-                background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
-                color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>Rename Root</button>
-              <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit</span>
-            </div>
-          )}
-
-
           {/* CENTER: Family tree */}
           <div ref={centerRef} style={{
             flex: 1, display: "flex", flexDirection: "column",
@@ -2871,6 +3024,10 @@ export default function App() {
                   background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
                   color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}>Link Family</button>
+                <button onClick={() => setShowHistoryPanel(true)} style={{
+                  background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                  color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>History</button>
                 <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
                 <div style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
@@ -2997,6 +3154,14 @@ export default function App() {
         {showLinkModal && family && (
           <LinkFamilyModal familyId={family.id} familyLabel={family.label}
             onClose={() => setShowLinkModal(false)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
+        )}
+
+        {/* Superuser: Edit History Panel */}
+        {showHistoryPanel && (
+          <EditHistoryPanel
+            onClose={() => setShowHistoryPanel(false)}
+            onRevert={bumpFamily}
+          />
         )}
 
       </>}

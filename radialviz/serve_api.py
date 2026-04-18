@@ -839,11 +839,13 @@ def pos_stats():
 # SUPERUSER WRITE ENDPOINTS — Family editing
 # ═══════════════════════════════════════════════════════════════
 
-def log_edit(db, action, family_id=None, lemma_id=None, detail=None):
-    """Append a row to the audit log."""
+def log_edit(db, action, family_id=None, lemma_id=None, detail=None, before=None):
+    """Append a row to the audit log with optional before-state for reversal."""
     db.execute(
-        "INSERT INTO family_edit_log (action, family_id, lemma_id, detail) VALUES (?,?,?,?)",
-        (action, family_id, lemma_id, json.dumps(detail) if detail else None),
+        "INSERT INTO family_edit_log (action, family_id, lemma_id, detail, before) VALUES (?,?,?,?,?)",
+        (action, family_id, lemma_id,
+         json.dumps(detail) if detail else None,
+         json.dumps(before) if before else None),
     )
 
 
@@ -871,6 +873,10 @@ def update_lemma(lemma_id):
     if not updates:
         return jsonify({"error": "No fields to update"}), 400
 
+    # Capture before state
+    old = db.execute("SELECT short_def, pos, lsj_def FROM lemmas WHERE id = ?", (lemma_id,)).fetchone()
+    before_state = {k: old[k] for k in ("short_def", "pos", "lsj_def")} if old else {}
+
     params.append(lemma_id)
     db.execute(f"UPDATE lemmas SET {', '.join(updates)} WHERE id = ?", params)
 
@@ -890,7 +896,9 @@ def update_lemma(lemma_id):
                 (lemma_id, "manual", data["short_def"], data["short_def"]),
             )
 
-    log_edit(db, "update_lemma", lemma_id=lemma_id, detail={k: data[k] for k in ("short_def", "pos", "lsj_def") if k in data})
+    log_edit(db, "update_lemma", lemma_id=lemma_id,
+             detail={k: data[k] for k in ("short_def", "pos", "lsj_def") if k in data},
+             before=before_state)
     db.commit()
     return jsonify({"ok": True})
 
@@ -1080,6 +1088,13 @@ def add_family_member(family_id):
 def remove_family_member(family_id, lemma_id):
     db = get_write_db()
 
+    # Capture before state
+    old = db.execute(
+        "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+        (lemma_id, family_id),
+    ).fetchone()
+    before_state = {"relation": old["relation"], "parent_lemma_id": old["parent_lemma_id"]} if old else {}
+
     db.execute(
         "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
         (lemma_id, family_id),
@@ -1095,7 +1110,7 @@ def remove_family_member(family_id, lemma_id):
         db.execute("DELETE FROM derivational_families WHERE id = ?", (family_id,))
         family_deleted = True
 
-    log_edit(db, "remove_member", family_id, lemma_id, {"family_deleted": family_deleted})
+    log_edit(db, "remove_member", family_id, lemma_id, {"family_deleted": family_deleted}, before=before_state)
     db.commit()
 
     return jsonify({"ok": True, "family_deleted": family_deleted})
@@ -1136,15 +1151,21 @@ def merge_families(family_id, other_id):
                 (m["lemma_id"], family_id, m["relation"], m["parent_lemma_id"]),
             )
 
+    # Snapshot merged family for reversal (before deleting)
+    other_fam = db.execute("SELECT root, label FROM derivational_families WHERE id = ?", (other_id,)).fetchone()
+    before_state = {
+        "other_family": {"id": other_id, "root": other_fam["root"] if other_fam else None, "label": other_fam["label"] if other_fam else None},
+        "other_members": [{"lemma_id": m["lemma_id"], "relation": m["relation"], "parent_lemma_id": m["parent_lemma_id"]} for m in other_members],
+    }
+
     # Delete the old family
     db.execute("DELETE FROM lemma_families WHERE family_id = ?", (other_id,))
     db.execute("DELETE FROM derivational_families WHERE id = ?", (other_id,))
-
     log_edit(db, "merge", family_id, None, {
         "merged_from": other_id,
         "merged_label": other["label"],
         "members_moved": len(other_members),
-    })
+    }, before=before_state)
     db.commit()
 
     return get_family(family_id)
@@ -1207,6 +1228,16 @@ def split_to_linked_family(family_id, lemma_id):
             if child not in subtree_ids:
                 stack.append(child)
 
+    # Snapshot subtree members before moving (for reversal)
+    before_members = []
+    for mid in subtree_ids:
+        row = db.execute(
+            "SELECT relation, parent_lemma_id FROM lemma_families WHERE family_id = ? AND lemma_id = ?",
+            (family_id, mid),
+        ).fetchone()
+        if row:
+            before_members.append({"lemma_id": mid, "relation": row["relation"], "parent_lemma_id": row["parent_lemma_id"]})
+
     # Create new family
     new_root = lemma_info["lemma"]
     new_label = f"{new_root} family"
@@ -1253,7 +1284,7 @@ def split_to_linked_family(family_id, lemma_id):
     log_edit(db, "split_family", family_id, lemma_id, {
         "new_family_id": new_family_id,
         "subtree_size": len(subtree_ids),
-    })
+    }, before={"members": before_members})
     db.commit()
 
     return jsonify({"ok": True, "new_family_id": new_family_id})
@@ -1275,6 +1306,13 @@ def update_member_relation(family_id, lemma_id):
     if not relation and "parent_lemma_id" not in data:
         return jsonify({"error": "relation or parent_lemma_id is required"}), 400
 
+    # Capture before state
+    old = db.execute(
+        "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+        (lemma_id, family_id),
+    ).fetchone()
+    before_state = {"relation": old["relation"], "parent_lemma_id": old["parent_lemma_id"]} if old else {}
+
     updates, params = [], []
     if relation:
         updates.append("relation = ?")
@@ -1288,7 +1326,7 @@ def update_member_relation(family_id, lemma_id):
         f"UPDATE lemma_families SET {', '.join(updates)} WHERE lemma_id = ? AND family_id = ?",
         params,
     )
-    log_edit(db, "update_member", family_id, lemma_id, {"relation": relation, "parent_lemma_id": parent_lemma_id})
+    log_edit(db, "update_member", family_id, lemma_id, {"relation": relation, "parent_lemma_id": parent_lemma_id}, before=before_state)
     db.commit()
 
     return jsonify({"ok": True})
@@ -1343,6 +1381,16 @@ def move_member_cross_family(source_id, lemma_id, target_id):
             ids_to_move.append(cid)
             queue.extend(children_of.get(cid, []))
 
+    # Snapshot members before moving (for reversal)
+    before_members = []
+    for mid in ids_to_move:
+        row = db.execute(
+            "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+            (mid, source_id),
+        ).fetchone()
+        if row:
+            before_members.append({"lemma_id": mid, "family_id": source_id, "relation": row["relation"], "parent_lemma_id": row["parent_lemma_id"]})
+
     # Move each member: delete from source, insert into target
     for mid in ids_to_move:
         row = db.execute(
@@ -1392,7 +1440,7 @@ def move_member_cross_family(source_id, lemma_id, target_id):
         "new_parent_id": new_parent_id,
         "ids_moved": ids_to_move,
         "source_deleted": source_deleted,
-    })
+    }, before={"members": before_members})
     db.commit()
 
     return jsonify({"ok": True, "ids_moved": ids_to_move, "source_deleted": source_deleted})
@@ -1461,6 +1509,10 @@ def update_family(family_id):
     if not root and not label:
         return jsonify({"error": "root or label is required"}), 400
 
+    # Capture before state
+    old = db.execute("SELECT root, label FROM derivational_families WHERE id = ?", (family_id,)).fetchone()
+    before_state = {"root": old["root"], "label": old["label"]} if old else {}
+
     updates, params = [], []
     if root:
         updates.append("root = ?")
@@ -1474,7 +1526,7 @@ def update_family(family_id):
         f"UPDATE derivational_families SET {', '.join(updates)} WHERE id = ?",
         params,
     )
-    log_edit(db, "update_family", family_id, None, {"root": root, "label": label})
+    log_edit(db, "update_family", family_id, None, {"root": root, "label": label}, before=before_state)
     db.commit()
 
     return jsonify({"ok": True})
@@ -1496,12 +1548,15 @@ def create_family_link(family_id, other_id):
     note = data.get("note", "")
     # Ensure consistent ordering so UNIQUE constraint works
     a, b = min(family_id, other_id), max(family_id, other_id)
+    # Check for existing link (for before state)
+    old_link = db.execute("SELECT link_type, note FROM family_links WHERE family_id_a = ? AND family_id_b = ?", (a, b)).fetchone()
+    before_state = {"link_type": old_link["link_type"], "note": old_link["note"]} if old_link else None
     try:
         db.execute(
             "INSERT INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?, ?, ?, ?)",
             (a, b, link_type, note),
         )
-        log_edit(db, "link_families", family_id, None, {"other_id": other_id, "link_type": link_type})
+        log_edit(db, "link_families", family_id, None, {"other_id": other_id, "link_type": link_type}, before=before_state)
         db.commit()
     except sqlite3.IntegrityError:
         # Link already exists, update it
@@ -1509,6 +1564,7 @@ def create_family_link(family_id, other_id):
             "UPDATE family_links SET link_type = ?, note = ? WHERE family_id_a = ? AND family_id_b = ?",
             (link_type, note, a, b),
         )
+        log_edit(db, "link_families", family_id, None, {"other_id": other_id, "link_type": link_type}, before=before_state)
         db.commit()
     return jsonify({"ok": True})
 
@@ -1522,8 +1578,10 @@ def create_family_link(family_id, other_id):
 def delete_family_link(family_id, other_id):
     db = get_write_db()
     a, b = min(family_id, other_id), max(family_id, other_id)
+    old_link = db.execute("SELECT link_type, note FROM family_links WHERE family_id_a = ? AND family_id_b = ?", (a, b)).fetchone()
+    before_state = {"link_type": old_link["link_type"], "note": old_link["note"]} if old_link else None
     db.execute("DELETE FROM family_links WHERE family_id_a = ? AND family_id_b = ?", (a, b))
-    log_edit(db, "unlink_families", family_id, None, {"other_id": other_id})
+    log_edit(db, "unlink_families", family_id, None, {"other_id": other_id}, before=before_state)
     db.commit()
     return jsonify({"ok": True})
 
@@ -1732,6 +1790,13 @@ def ensure_schema():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Add before column for edit reversal
+    try:
+        conn.execute("ALTER TABLE family_edit_log ADD COLUMN before TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # Cross-family links (for multi-root visualization)
     conn.execute("""CREATE TABLE IF NOT EXISTS family_links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1744,6 +1809,214 @@ def ensure_schema():
     conn.commit()
 
     conn.close()
+
+
+# ─────────────────────────────────────────────
+# GET /api/edit-history
+# Returns recent edits with parsed detail/before
+# Query: ?limit=50&offset=0
+# ─────────────────────────────────────────────
+@app.route("/api/edit-history")
+@require_superuser
+def get_edit_history():
+    limit = min(int(request.args.get("limit", 50)), 200)
+    offset = int(request.args.get("offset", 0))
+    db = get_db()
+    rows = db.execute("""
+        SELECT e.id, e.timestamp, e.action, e.family_id, e.lemma_id,
+               e.detail, e.before, e.user,
+               l.lemma AS lemma_name,
+               f.root AS family_root, f.label AS family_label
+        FROM family_edit_log e
+        LEFT JOIN lemmas l ON l.id = e.lemma_id
+        LEFT JOIN derivational_families f ON f.id = e.family_id
+        ORDER BY e.id DESC
+        LIMIT ? OFFSET ?
+    """, (limit, offset)).fetchall()
+
+    result = []
+    for r in rows:
+        entry = {
+            "id": r["id"],
+            "timestamp": r["timestamp"],
+            "action": r["action"],
+            "family_id": r["family_id"],
+            "lemma_id": r["lemma_id"],
+            "user": r["user"],
+            "lemma_name": r["lemma_name"],
+            "family_root": r["family_root"],
+            "family_label": r["family_label"],
+            "detail": json.loads(r["detail"]) if r["detail"] else None,
+            "before": json.loads(r["before"]) if r["before"] else None,
+            "reversible": r["before"] is not None,
+        }
+        result.append(entry)
+
+    total = db.execute("SELECT COUNT(*) as c FROM family_edit_log").fetchone()["c"]
+    return jsonify({"edits": result, "total": total, "limit": limit, "offset": offset})
+
+
+# ─────────────────────────────────────────────
+# POST /api/edit-history/<id>/revert
+# Reverts a single edit using its before-state
+# ─────────────────────────────────────────────
+@app.route("/api/edit-history/<int:edit_id>/revert", methods=["POST"])
+@require_superuser
+def revert_edit(edit_id):
+    db = get_write_db()
+    row = db.execute("SELECT * FROM family_edit_log WHERE id = ?", (edit_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Edit not found"}), 404
+
+    before = json.loads(row["before"]) if row["before"] else None
+    if not before:
+        return jsonify({"error": "No before-state recorded — cannot revert"}), 400
+
+    action = row["action"]
+    family_id = row["family_id"]
+    lemma_id = row["lemma_id"]
+    detail = json.loads(row["detail"]) if row["detail"] else {}
+
+    try:
+        if action == "update_lemma":
+            updates, params = [], []
+            for col in ("short_def", "pos", "lsj_def"):
+                if col in before:
+                    updates.append(f"{col} = ?")
+                    params.append(before[col])
+            if updates:
+                params.append(lemma_id)
+                db.execute(f"UPDATE lemmas SET {', '.join(updates)} WHERE id = ?", params)
+
+        elif action == "update_member_relation":
+            db.execute(
+                "UPDATE lemma_families SET relation = ?, parent_lemma_id = ? WHERE lemma_id = ? AND family_id = ?",
+                (before.get("relation"), before.get("parent_lemma_id"), lemma_id, family_id),
+            )
+
+        elif action in ("update_member",):
+            db.execute(
+                "UPDATE lemma_families SET relation = ?, parent_lemma_id = ? WHERE lemma_id = ? AND family_id = ?",
+                (before.get("relation"), before.get("parent_lemma_id"), lemma_id, family_id),
+            )
+
+        elif action == "remove_member":
+            db.execute(
+                "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                (lemma_id, family_id, before.get("relation"), before.get("parent_lemma_id")),
+            )
+
+        elif action == "add_member":
+            db.execute(
+                "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                (lemma_id, family_id),
+            )
+
+        elif action == "merge_families":
+            other_id = before.get("merged_from")
+            other_fam = before.get("other_family")
+            members = before.get("members", [])
+            if other_id and other_fam:
+                db.execute(
+                    "INSERT OR IGNORE INTO derivational_families (id, root, label) VALUES (?,?,?)",
+                    (other_id, other_fam["root"], other_fam["label"]),
+                )
+                for m in members:
+                    db.execute(
+                        "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                        (m["lemma_id"], family_id),
+                    )
+                    db.execute(
+                        "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                        (m["lemma_id"], other_id, m["relation"], m["parent_lemma_id"]),
+                    )
+
+        elif action == "update_family":
+            db.execute(
+                "UPDATE derivational_families SET root = ?, label = ? WHERE id = ?",
+                (before.get("root"), before.get("label"), family_id),
+            )
+
+        elif action == "create_link":
+            other_id = detail.get("other_family_id")
+            existing = before.get("existing_link")
+            if existing:
+                db.execute(
+                    "UPDATE family_links SET link_type = ?, note = ? WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
+                    (existing["link_type"], existing["note"], family_id, other_id, other_id, family_id),
+                )
+            else:
+                db.execute(
+                    "DELETE FROM family_links WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
+                    (family_id, other_id, other_id, family_id),
+                )
+
+        elif action in ("delete_link", "remove_link", "unlink_families"):
+            other_id = detail.get("other_family_id")
+            db.execute(
+                "INSERT OR IGNORE INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?,?,?,?)",
+                (family_id, other_id, before.get("link_type", "related"), before.get("note")),
+            )
+
+        elif action == "split_to_linked_family":
+            members_before = before.get("members_before", [])
+            new_family_id = detail.get("new_family_id")
+            if new_family_id:
+                db.execute("DELETE FROM lemma_families WHERE family_id = ?", (new_family_id,))
+                db.execute("DELETE FROM derivational_families WHERE id = ?", (new_family_id,))
+                db.execute(
+                    "DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?",
+                    (new_family_id, new_family_id),
+                )
+                db.execute("DELETE FROM lemma_families WHERE family_id = ?", (family_id,))
+                for m in members_before:
+                    db.execute(
+                        "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                        (m["lemma_id"], family_id, m["relation"], m["parent_lemma_id"]),
+                    )
+
+        elif action == "split_family":
+            members_before = before.get("members_before", [])
+            new_family_id = detail.get("new_family_id")
+            if new_family_id:
+                db.execute("DELETE FROM lemma_families WHERE family_id = ?", (new_family_id,))
+                db.execute("DELETE FROM derivational_families WHERE id = ?", (new_family_id,))
+                db.execute(
+                    "DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?",
+                    (new_family_id, new_family_id),
+                )
+                db.execute("DELETE FROM lemma_families WHERE family_id = ?", (family_id,))
+                for m in members_before:
+                    db.execute(
+                        "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                        (m["lemma_id"], family_id, m["relation"], m["parent_lemma_id"]),
+                    )
+
+        elif action == "move_member_cross_family":
+            source_fid = before.get("source_family_id")
+            target_id = detail.get("target_family_id")
+            members = before.get("members", [])
+            for m in members:
+                db.execute(
+                    "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                    (m["lemma_id"], target_id),
+                )
+                db.execute(
+                    "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+                    (m["lemma_id"], source_fid, m["relation"], m["parent_lemma_id"]),
+                )
+
+        else:
+            return jsonify({"error": f"Revert not implemented for action: {action}"}), 400
+
+        log_edit(db, f"revert_{action}", family_id, lemma_id,
+                 {"reverted_edit_id": edit_id, "original_detail": detail},
+                 before=None)
+        db.commit()
+        return jsonify({"status": "ok", "reverted_edit_id": edit_id, "action": action})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ─────────────────────────────────────────────
@@ -1775,7 +2048,15 @@ def admin_sync():
             detail = json.loads(detail)
 
         try:
+            before = None
+
             if action == "update_member":
+                row = db.execute(
+                    "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                    (lemma_id, family_id),
+                ).fetchone()
+                if row:
+                    before = {"relation": row["relation"], "parent_lemma_id": row["parent_lemma_id"]}
                 updates, params = [], []
                 if detail.get("relation") is not None:
                     updates.append("relation = ?")
@@ -1797,6 +2078,12 @@ def admin_sync():
                 )
 
             elif action == "remove_member":
+                row = db.execute(
+                    "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                    (lemma_id, family_id),
+                ).fetchone()
+                if row:
+                    before = {"relation": row["relation"], "parent_lemma_id": row["parent_lemma_id"]}
                 db.execute(
                     "DELETE FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
                     (lemma_id, family_id),
@@ -1814,6 +2101,14 @@ def admin_sync():
                         "SELECT lemma_id, relation, parent_lemma_id FROM lemma_families WHERE family_id = ?",
                         (other_id,),
                     ).fetchall()
+                    other_fam = db.execute(
+                        "SELECT root, label FROM derivational_families WHERE id = ?", (other_id,)
+                    ).fetchone()
+                    before = {
+                        "merged_from": other_id,
+                        "other_family": {"root": other_fam["root"], "label": other_fam["label"]} if other_fam else None,
+                        "members": [{"lemma_id": m["lemma_id"], "relation": m["relation"], "parent_lemma_id": m["parent_lemma_id"]} for m in members],
+                    }
                     for m in members:
                         existing = db.execute(
                             "SELECT 1 FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
@@ -1828,9 +2123,17 @@ def admin_sync():
                     db.execute("DELETE FROM derivational_families WHERE id = ?", (other_id,))
 
             elif action == "split_family":
-                # Split is complex — replay by creating new family and moving members
                 new_family_id = detail.get("new_family_id")
                 if new_family_id:
+                    # Snapshot members before split for revert
+                    pre_members = db.execute(
+                        "SELECT lemma_id, relation, parent_lemma_id FROM lemma_families WHERE family_id = ?",
+                        (family_id,),
+                    ).fetchall()
+                    before = {
+                        "source_family_id": family_id,
+                        "members_before": [{"lemma_id": m["lemma_id"], "relation": m["relation"], "parent_lemma_id": m["parent_lemma_id"]} for m in pre_members],
+                    }
                     # Collect the subtree via BFS
                     all_members = db.execute(
                         "SELECT lemma_id, parent_lemma_id, relation FROM lemma_families WHERE family_id = ?",
@@ -1880,6 +2183,15 @@ def admin_sync():
                 target_id = detail.get("target_family_id")
                 new_parent = detail.get("new_parent_id")
                 ids_moved = detail.get("ids_moved", [lemma_id])
+                before_members = []
+                for mid in ids_moved:
+                    brow = db.execute(
+                        "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+                        (mid, family_id),
+                    ).fetchone()
+                    if brow:
+                        before_members.append({"lemma_id": mid, "relation": brow["relation"], "parent_lemma_id": brow["parent_lemma_id"]})
+                before = {"source_family_id": family_id, "members": before_members}
                 for mid in ids_moved:
                     row = db.execute(
                         "SELECT relation, parent_lemma_id FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
@@ -1901,6 +2213,11 @@ def admin_sync():
                     db.execute("DELETE FROM family_links WHERE family_id_a = ? OR family_id_b = ?", (family_id, family_id))
 
             elif action == "update_family":
+                frow = db.execute(
+                    "SELECT root, label FROM derivational_families WHERE id = ?", (family_id,)
+                ).fetchone()
+                if frow:
+                    before = {"root": frow["root"], "label": frow["label"]}
                 updates, params = [], []
                 if detail.get("root") is not None:
                     updates.append("root = ?")
@@ -1920,6 +2237,11 @@ def admin_sync():
                 link_type = detail.get("link_type", "related")
                 note = detail.get("note")
                 if other_id:
+                    existing = db.execute(
+                        "SELECT link_type, note FROM family_links WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
+                        (family_id, other_id, other_id, family_id),
+                    ).fetchone()
+                    before = {"existing_link": {"link_type": existing["link_type"], "note": existing["note"]} if existing else None}
                     db.execute(
                         "INSERT OR REPLACE INTO family_links (family_id_a, family_id_b, link_type, note) VALUES (?,?,?,?)",
                         (family_id, other_id, link_type, note),
@@ -1928,6 +2250,12 @@ def admin_sync():
             elif action == "remove_link":
                 other_id = detail.get("other_family_id")
                 if other_id:
+                    existing = db.execute(
+                        "SELECT link_type, note FROM family_links WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
+                        (family_id, other_id, other_id, family_id),
+                    ).fetchone()
+                    if existing:
+                        before = {"link_type": existing["link_type"], "note": existing["note"]}
                     db.execute(
                         "DELETE FROM family_links WHERE (family_id_a = ? AND family_id_b = ?) OR (family_id_a = ? AND family_id_b = ?)",
                         (family_id, other_id, other_id, family_id),
@@ -1937,7 +2265,7 @@ def admin_sync():
                 results.append({"action": action, "status": "skipped", "reason": "unknown action"})
                 continue
 
-            log_edit(db, action, family_id, lemma_id, detail)
+            log_edit(db, action, family_id, lemma_id, detail, before=before)
             results.append({"action": action, "family_id": family_id, "lemma_id": lemma_id, "status": "ok"})
 
         except Exception as e:
