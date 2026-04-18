@@ -2,6 +2,10 @@
 
 A Greek vocabulary explorer for studying Ancient Greek texts. Browse vocabulary by author and work, explore morphological forms, and visualize derivational word families through an interactive radial tree.
 
+**Author:** Randall Craig Meister (randallcraigmeister@gmail.com)
+
+This project was developed with the assistance of [Claude Code](https://claude.ai/claude-code) by Anthropic.
+
 ## Quick Start
 
 ```bash
@@ -20,7 +24,7 @@ The app will be available at `http://localhost:5173` with the API on `http://loc
 
 ### Superuser Mode
 
-To enable family editing features (add/remove words, merge/rename families):
+To enable family editing features (add/remove words, merge/rename families, link families):
 
 ```bash
 GLOSSALEARN_SUPERUSER=1 python3 serve_api.py
@@ -30,14 +34,15 @@ GLOSSALEARN_SUPERUSER=1 python3 serve_api.py
 
 - **Backend**: Flask REST API (`serve_api.py`) serving data from SQLite
 - **Frontend**: React single-page app with D3.js radial visualization (`vocab-viz/src/App.jsx`)
-- **Database**: `greek_vocab.db` (~1.3 GB) containing the full Greek corpus with morphology, lemmatization, and occurrence data
+- **Database**: `greek_vocab.db` (~2.1 GB) containing the full Greek corpus with morphology, lemmatization, and occurrence data
+- **Production**: Deployed on AWS Lightsail with API at `https://apiaws.glossalearn.com`
 
 ## Database Schema
 
 ### Core Tables
 
 #### `works`
-Texts in the corpus (Perseus, TLG).
+Texts in the corpus (Perseus, TLG, First1KGreek).
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -98,6 +103,27 @@ Individual token instances in texts. This is the largest table (~18M rows).
 | sentence_n | INTEGER | | Sentence number within work |
 | token_n | INTEGER | | Token position within sentence |
 
+#### `sentences`
+Reconstructed sentence text for each work, linked to lemmas for contextual lookup.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-increment ID |
+| work_id | INTEGER | NOT NULL, FK -> works(id) | The work this sentence appears in |
+| passage | TEXT | | CTS passage reference |
+| sentence_pos | INTEGER | | Position of sentence within the passage |
+| sentence_text | TEXT | NOT NULL | Full reconstructed Greek sentence text |
+
+#### `sentence_lemmas`
+Join table linking sentences to the lemmas they contain, enabling "find sentences containing this word" queries.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| sentence_id | INTEGER | NOT NULL, FK -> sentences(id) | The sentence |
+| lemma_id | INTEGER | NOT NULL, FK -> lemmas(id) | A lemma appearing in that sentence |
+
+Primary key on `(sentence_id, lemma_id)`.
+
 #### `definitions`
 Lexicon entries from various sources.
 
@@ -132,6 +158,19 @@ Links lemmas to their derivational family with hierarchical relationships. The `
 | parent_lemma_id | INTEGER | FK -> lemmas(id) | Parent in the derivation chain (null = derives directly from root) |
 
 Primary key on `(lemma_id, family_id)`.
+
+#### `family_links`
+Explicit links between related derivational families, enabling cross-family visualization.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-increment ID |
+| family_id_a | INTEGER | NOT NULL, FK -> derivational_families(id) | First family |
+| family_id_b | INTEGER | NOT NULL, FK -> derivational_families(id) | Second family |
+| link_type | TEXT | | Type of link (e.g. "related", "compound", "split") |
+| note | TEXT | | Optional note describing the relationship |
+
+Unique constraint on `(family_id_a, family_id_b)`.
 
 ### Aggregate & Utility Tables
 
@@ -175,6 +214,8 @@ FTS5 virtual table for full-text search across `lemma`, `short_def`, and `lsj_de
 | idx_occ_passage | occurrences(passage) |
 | idx_wlc_work | work_lemma_counts(work_id) |
 | idx_wlc_lemma | work_lemma_counts(lemma_id) |
+| idx_sentence_lemmas_lemma | sentence_lemmas(lemma_id) |
+| idx_sentences_work | sentences(work_id) |
 
 ### Entity Relationships
 
@@ -182,7 +223,9 @@ FTS5 virtual table for full-text search across `lemma`, `short_def`, and `lsj_de
 works --< work_lemma_counts >-- lemmas
 works --< occurrences >-- lemmas
                     \---- forms --> lemmas
+works --< sentences --< sentence_lemmas >-- lemmas
 lemmas --< lemma_families >-- derivational_families
+derivational_families --< family_links >-- derivational_families
 lemmas --< definitions
 lemma_families.parent_lemma_id --> lemmas (hierarchical derivation chain)
 ```
@@ -203,6 +246,7 @@ lemma_families.parent_lemma_id --> lemmas (hierarchical derivation chain)
 | GET | `/api/compare` | Compare vocabulary between two works/authors |
 | GET | `/api/pos-stats` | Part-of-speech breakdown (optional `author` or `work_id` filter) |
 | GET | `/api/family/<id>` | Get family with all members |
+| GET | `/api/family/<id>/linked` | Get family with both explicit and implicit linked families |
 | GET | `/api/family/search?q=` | Search families by root, label, or member word |
 
 ### Superuser Write Endpoints
@@ -217,6 +261,17 @@ Require `GLOSSALEARN_SUPERUSER=1` environment variable.
 | PATCH | `/api/family/<id>/member/<lemma_id>` | Update member relation or parent |
 | POST | `/api/family/<id>/merge/<other_id>` | Merge two families |
 | PATCH | `/api/family/<id>` | Rename family root and/or label |
+| POST | `/api/family/<id>/link/<other_id>` | Link two related families |
+| DELETE | `/api/family/<id>/link/<other_id>` | Remove a family link |
+| POST | `/api/family/<id>/split` | Split a subtree into a new linked family |
+
+### Admin Sync Endpoint
+
+Requires `GLOSSALEARN_ADMIN_TOKEN` environment variable.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/admin/sync` | Replay edit operations from a local machine to production |
 
 ## Frontend Components
 
@@ -226,6 +281,7 @@ Require `GLOSSALEARN_SUPERUSER=1` environment variable.
 | `WorkSelector` | Author and work selection with expandable author rows |
 | `WordList` | Searchable, sortable vocabulary list with POS filter chips |
 | `FamilyTree` | D3 radial visualization of derivational families with focus/expand on click |
+| `FamilyTreeSunburst` | Sunburst visualization for hierarchical family structure |
 | `FormsPanel` | Tabbed detail panel showing morphological forms, top works, and definitions |
 | `CollapsiblePanel` | Hoverable/pinnable side panels |
 | `AddWordModal` | Search and add words to a family with relation and parent selection |
@@ -233,11 +289,27 @@ Require `GLOSSALEARN_SUPERUSER=1` environment variable.
 | `MergeFamilyModal` | Search and merge families with similar roots |
 | `RenameFamilyModal` | Edit family root stem and label |
 
+## Build & Data Scripts
+
+| Script | Description |
+|--------|-------------|
+| `build_database.py` | Constructs the database from source corpus data |
+| `build_sentences.py` | Populates `sentences` and `sentence_lemmas` tables from lemmatized XML |
+| `improve_families.py` | Enriches derivational families using Morpheus stem data |
+| `add_work.py` | Ingest a single new work into an existing database (with forms, occurrences, sentences) |
+| `sync_edits.py` | Sync local superuser family edits to the production API on Lightsail |
+| `sync_work.py` | Push a newly ingested work (all data) to the production database on Lightsail via SSH |
+| `download_greek_data.sh` | Downloads source Greek text data |
+| `fix_lexica.py` | Repairs lexicon definition data |
+| `fix_tlg_titles.py` | Corrects TLG author/title metadata |
+| `repair_database.py` | General database repair utilities |
+| `repair_families_and_titles.py` | Fixes family groupings and work titles |
+
 ## Data Sources & Derivational Families
 
 ### Corpus & Lemmatization
 
-The database is built from XML-lemmatized Ancient Greek texts sourced from the [Perseus Digital Library](http://www.perseus.tufts.edu/) and the Thesaurus Linguae Graecae (TLG). Lexicon definitions come from the LSJ (Liddell-Scott-Jones) and Middle Liddell dictionaries via [PerseusDL/lexica](https://github.com/PerseusDL/lexica).
+The database is built from XML-lemmatized Ancient Greek texts sourced from the [Perseus Digital Library](http://www.perseus.tufts.edu/), the Thesaurus Linguae Graecae (TLG), and the [First1KGreek Project](https://opengreekandlatin.github.io/First1KGreek/). Lexicon definitions come from the LSJ (Liddell-Scott-Jones) and Middle Liddell dictionaries via [PerseusDL/lexica](https://github.com/PerseusDL/lexica).
 
 ### Derivational Families
 
@@ -252,9 +324,27 @@ Derivational families group Greek words that share a common root (e.g. βάλλ�
 
    The Morpheus data is converted from Perseus Beta Code to Unicode, matched against the lemma table, and used to: create new families from shared stems, set hierarchical parent-child links within families, and merge families that Morpheus reveals share the same root. Existing manually curated families are preserved and enriched, not overwritten.
 
-3. **Approximate stemming** (SUPERUSER)- a superuser was created in order to create connections and create more refinements in the connections that exist. As we build this data out more, we will add more people to be able to edit the database directly when requested and create more connections.
+3. **Superuser curation**: A superuser mode enables manual refinement of family connections — linking related families, splitting subtrees, and correcting automated groupings. As the dataset grows, additional editors may be granted access to further curate the derivational data.
 
-For those who would like access to the data, you may write randallcraigmeister [at] gmail [dot] and request a token and download the data at the endpoint: https://api.glossalearn.com/api/download-db?token=[INSERTOKENWITHOUTBRACKETS]
+### Cross-Family Links
+
+Families can be linked to show etymological relationships that span separate root groups. Links are created through the superuser interface and synced to production via `sync_edits.py`. The frontend visualizes linked families as connected radial trees, with shared members shown as bridges between families.
+
+### Adding New Works
+
+New works can be added to the database without a full rebuild using `add_work.py`, which ingests a single work from the lemmatized XML corpus. The `sync_work.py` script then pushes the new work data to the production database on Lightsail via SSH.
+
+```bash
+# Ingest locally
+python3 add_work.py --tlg-author tlg1311 --tlg-work tlg001 --author "Apostolic Fathers" --title "Didache"
+
+# Push to production
+python3 sync_work.py --title "Didache" --push
+```
+
+### Data Access
+
+For those who would like access to the data, you may write randallcraigmeister [at] gmail [dot] com and request a token and download the data at the endpoint: `https://api.glossalearn.com/api/download-db?token=[TOKEN]`
 
 ### Attribution & License
 
@@ -269,15 +359,3 @@ The Morpheus data is licensed under a [Creative Commons Attribution-ShareAlike 3
 - The Morpheus stem files are downloaded at build time and cached locally; they are not redistributed in this repository.
 
 Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](https://github.com/PerseusDL/lexica) under the same CC BY-SA 3.0 US license.
-
-## Build Scripts
-
-| Script | Description |
-|--------|-------------|
-| `build_database.py` | Constructs the database from source corpus data |
-| `improve_families.py` | Enriches derivational families using Morpheus stem data |
-| `download_greek_data.sh` | Downloads source Greek text data |
-| `fix_lexica.py` | Repairs lexicon definition data |
-| `fix_tlg_titles.py` | Corrects TLG author/title metadata |
-| `repair_database.py` | General database repair utilities |
-| `repair_families_and_titles.py` | Fixes family groupings and work titles |

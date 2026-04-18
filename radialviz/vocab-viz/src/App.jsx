@@ -2445,6 +2445,13 @@ export default function App() {
             Family: <strong style={{ color: T.gold }}>{family?.label || "loading..."}</strong>
           </span>
         )}
+        <a href="/about.html"
+          style={{ fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
+            fontFamily: T.mono, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
+            border: `1px solid ${T.border}`, textDecoration: "none", transition: "color 0.2s, border-color 0.2s" }}
+          onMouseEnter={e => { e.currentTarget.style.color = T.gold; e.currentTarget.style.borderColor = T.goldDim; }}
+          onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
+        >ABOUT</a>
       </header>
 
       {/* Main layout */}
