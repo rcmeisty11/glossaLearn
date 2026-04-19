@@ -85,6 +85,9 @@ SUPERUSER_MODE = os.environ.get("GLOSSALEARN_SUPERUSER", "0") == "1"
 # Admin token for remote sync
 ADMIN_TOKEN = os.environ.get("GLOSSALEARN_ADMIN_TOKEN", "")
 
+# LSJ staging database for definition/family review
+LSJ_DB_PATH = Path(os.environ.get("LSJ_DB_PATH", "./lsj_staging.db"))
+
 
 def require_superuser(f):
     """Decorator that gates write endpoints behind superuser mode."""
@@ -125,7 +128,7 @@ def get_write_db():
 
 @app.teardown_appcontext
 def close_db(exception):
-    for key in ("db", "write_db"):
+    for key in ("db", "write_db", "lsj_db"):
         conn = g.pop(key, None)
         if conn is not None:
             conn.close()
@@ -2017,6 +2020,351 @@ def revert_edit(edit_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════
+# LSJ REVIEW ENDPOINTS — Definition & Family review workflow
+# ═══════════════════════════════════════════════════════════════
+
+def get_lsj_db():
+    """Get a connection to the LSJ staging database."""
+    if not LSJ_DB_PATH.exists():
+        return None
+    if "lsj_db" not in g:
+        g.lsj_db = sqlite3.connect(str(LSJ_DB_PATH))
+        g.lsj_db.row_factory = sqlite3.Row
+    return g.lsj_db
+
+
+# ─────────────────────────────────────────────
+# GET /api/lsj/review/definitions
+# Paginated list of definition matches to review
+# Query: ?status=pending&missing_only=1&limit=20&offset=0&search=
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/definitions")
+@require_superuser
+def lsj_review_definitions():
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    status = request.args.get("status", "pending")
+    missing_only = request.args.get("missing_only", "0") == "1"
+    search = request.args.get("search", "").strip()
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+
+    where = ["def_status = ?"]
+    params = [status]
+    if missing_only:
+        where.append("missing_current_def = 1")
+    if search:
+        where.append("(lemma LIKE ? OR lsj_short_def LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    where_sql = " AND ".join(where)
+    rows = lsj.execute(f"""
+        SELECT id, entry_id, lemma_id, lemma, match_type,
+               current_short_def, lsj_short_def, lsj_full_def,
+               missing_current_def, def_status, def_reviewed_at
+        FROM lsj_matches
+        WHERE {where_sql}
+        ORDER BY missing_current_def DESC, lemma
+        LIMIT ? OFFSET ?
+    """, params + [limit, offset]).fetchall()
+
+    total = lsj.execute(f"SELECT COUNT(*) as c FROM lsj_matches WHERE {where_sql}", params).fetchone()["c"]
+    stats = {
+        "pending": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='pending'").fetchone()["c"],
+        "approved": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='approved'").fetchone()["c"],
+        "rejected": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='rejected'").fetchone()["c"],
+        "missing": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE missing_current_def=1 AND def_status='pending'").fetchone()["c"],
+    }
+
+    return jsonify({
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "stats": stats,
+    })
+
+
+# ─────────────────────────────────────────────
+# POST /api/lsj/review/definitions/<id>/approve
+# Approve a definition — writes it to the vocab DB
+# Body: { "definition": "override text" }  (optional override)
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/definitions/<int:match_id>/approve", methods=["POST"])
+@require_superuser
+def lsj_approve_definition(match_id):
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    row = lsj.execute("SELECT * FROM lsj_matches WHERE id = ?", (match_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Match not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    new_def = data.get("definition") or row["lsj_short_def"] or row["lsj_full_def"]
+    if not new_def:
+        return jsonify({"error": "No definition available"}), 400
+
+    # Write to vocab DB
+    db = get_write_db()
+    db.execute("UPDATE lemmas SET short_def = ? WHERE id = ?", (new_def.strip(), row["lemma_id"]))
+    log_edit(db, "update_lemma", lemma_id=row["lemma_id"],
+             detail={"short_def": new_def.strip(), "source": "lsj_review"},
+             before={"short_def": row["current_short_def"]})
+    db.commit()
+
+    # Mark as approved in staging
+    lsj.execute("UPDATE lsj_matches SET def_status = 'approved', def_reviewed_at = datetime('now') WHERE id = ?", (match_id,))
+    lsj.commit()
+
+    return jsonify({"status": "ok", "lemma_id": row["lemma_id"], "new_def": new_def.strip()})
+
+
+# ─────────────────────────────────────────────
+# POST /api/lsj/review/definitions/<id>/reject
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/definitions/<int:match_id>/reject", methods=["POST"])
+@require_superuser
+def lsj_reject_definition(match_id):
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+    lsj.execute("UPDATE lsj_matches SET def_status = 'rejected', def_reviewed_at = datetime('now') WHERE id = ?", (match_id,))
+    lsj.commit()
+    return jsonify({"status": "ok"})
+
+
+# ─────────────────────────────────────────────
+# GET /api/lsj/review/families
+# Paginated list of family connection candidates
+# Query: ?status=pending&limit=20&offset=0&search=&actionable=1
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/families")
+@require_superuser
+def lsj_review_families():
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    status = request.args.get("status", "pending")
+    actionable = request.args.get("actionable", "0") == "1"
+    search = request.args.get("search", "").strip()
+    relation = request.args.get("relation", "")
+    limit = min(int(request.args.get("limit", 20)), 100)
+    offset = int(request.args.get("offset", 0))
+
+    where = ["family_status = ?"]
+    params = [status]
+    if actionable:
+        where.append("child_lemma_id IS NOT NULL AND parent_lemma_id IS NOT NULL")
+    if search:
+        where.append("(child_headword LIKE ? OR parent_headword LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
+    if relation:
+        where.append("relation_type = ?")
+        params.append(relation)
+
+    where_sql = " AND ".join(where)
+
+    rows = lsj.execute(f"""
+        SELECT id, child_entry_id, child_lemma_id, child_headword,
+               parent_headword, parent_lemma_id, relation_type,
+               family_status, family_reviewed_at
+        FROM lsj_family_candidates
+        WHERE {where_sql}
+        ORDER BY
+            CASE WHEN child_lemma_id IS NOT NULL AND parent_lemma_id IS NOT NULL THEN 0 ELSE 1 END,
+            child_headword
+        LIMIT ? OFFSET ?
+    """, params + [limit, offset]).fetchall()
+
+    total = lsj.execute(f"SELECT COUNT(*) as c FROM lsj_family_candidates WHERE {where_sql}", params).fetchone()["c"]
+
+    # Enrich with current family info from vocab DB
+    db = get_db()
+    enriched = []
+    for r in rows:
+        item = dict(r)
+        # Get child's current family
+        if r["child_lemma_id"]:
+            fam = db.execute("""
+                SELECT lf.family_id, df.root, df.label
+                FROM lemma_families lf
+                JOIN derivational_families df ON df.id = lf.family_id
+                WHERE lf.lemma_id = ?
+                LIMIT 1
+            """, (r["child_lemma_id"],)).fetchone()
+            item["child_family"] = {"id": fam["family_id"], "root": fam["root"], "label": fam["label"]} if fam else None
+        # Get parent's current family
+        if r["parent_lemma_id"]:
+            fam = db.execute("""
+                SELECT lf.family_id, df.root, df.label
+                FROM lemma_families lf
+                JOIN derivational_families df ON df.id = lf.family_id
+                WHERE lf.lemma_id = ?
+                LIMIT 1
+            """, (r["parent_lemma_id"],)).fetchone()
+            item["parent_family"] = {"id": fam["family_id"], "root": fam["root"], "label": fam["label"]} if fam else None
+        enriched.append(item)
+
+    stats = {
+        "pending": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='pending'").fetchone()["c"],
+        "approved": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='approved'").fetchone()["c"],
+        "rejected": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='rejected'").fetchone()["c"],
+        "actionable": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='pending' AND child_lemma_id IS NOT NULL AND parent_lemma_id IS NOT NULL").fetchone()["c"],
+    }
+
+    return jsonify({
+        "items": enriched,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "stats": stats,
+    })
+
+
+# ─────────────────────────────────────────────
+# POST /api/lsj/review/families/<id>/approve
+# Approve a family connection — adds child to parent's family
+# Body: { "relation": "derived", "target_family_id": 123 }  (optional overrides)
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/families/<int:candidate_id>/approve", methods=["POST"])
+@require_superuser
+def lsj_approve_family(candidate_id):
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    row = lsj.execute("SELECT * FROM lsj_family_candidates WHERE id = ?", (candidate_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    child_lid = row["child_lemma_id"]
+    parent_lid = data.get("parent_lemma_id") or row["parent_lemma_id"]
+    relation = data.get("relation", "derived")
+    target_family_id = data.get("target_family_id")
+
+    if not child_lid:
+        return jsonify({"error": "Child lemma not in vocab — cannot connect"}), 400
+    if not parent_lid:
+        return jsonify({"error": "Parent lemma not in vocab — reassign or search first"}), 400
+
+    db = get_write_db()
+
+    # Find which family the parent belongs to
+    if not target_family_id:
+        parent_fam = db.execute(
+            "SELECT family_id FROM lemma_families WHERE lemma_id = ? LIMIT 1", (parent_lid,)
+        ).fetchone()
+        if parent_fam:
+            target_family_id = parent_fam["family_id"]
+        else:
+            return jsonify({"error": "Parent lemma has no family — create one first"}), 400
+
+    # Check if child is already in this family
+    existing = db.execute(
+        "SELECT 1 FROM lemma_families WHERE lemma_id = ? AND family_id = ?",
+        (child_lid, target_family_id),
+    ).fetchone()
+
+    if existing:
+        lsj.execute("UPDATE lsj_family_candidates SET family_status = 'approved', family_reviewed_at = datetime('now') WHERE id = ?", (candidate_id,))
+        lsj.commit()
+        return jsonify({"status": "ok", "note": "Already in family"})
+
+    # Add to family
+    db.execute(
+        "INSERT OR IGNORE INTO lemma_families (lemma_id, family_id, relation, parent_lemma_id) VALUES (?,?,?,?)",
+        (child_lid, target_family_id, relation, parent_lid),
+    )
+    log_edit(db, "add_member", target_family_id, child_lid,
+             {"relation": relation, "parent_lemma_id": parent_lid, "source": "lsj_review"})
+    db.commit()
+
+    lsj.execute("UPDATE lsj_family_candidates SET family_status = 'approved', family_reviewed_at = datetime('now') WHERE id = ?", (candidate_id,))
+    lsj.commit()
+
+    return jsonify({"status": "ok", "family_id": target_family_id, "child_lemma_id": child_lid})
+
+
+# ─────────────────────────────────────────────
+# POST /api/lsj/review/families/<id>/reject
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/families/<int:candidate_id>/reject", methods=["POST"])
+@require_superuser
+def lsj_reject_family(candidate_id):
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+    lsj.execute("UPDATE lsj_family_candidates SET family_status = 'rejected', family_reviewed_at = datetime('now') WHERE id = ?", (candidate_id,))
+    lsj.commit()
+    return jsonify({"status": "ok"})
+
+
+# ─────────────────────────────────────────────
+# POST /api/lsj/review/families/<id>/reassign
+# Reassign a family candidate to a different parent lemma
+# Body: { "parent_lemma_id": 12345 }
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/families/<int:candidate_id>/reassign", methods=["POST"])
+@require_superuser
+def lsj_reassign_family(candidate_id):
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    new_parent_id = data.get("parent_lemma_id")
+    if not new_parent_id:
+        return jsonify({"error": "parent_lemma_id required"}), 400
+
+    # Verify the new parent exists
+    db = get_db()
+    parent = db.execute("SELECT id, lemma FROM lemmas WHERE id = ?", (new_parent_id,)).fetchone()
+    if not parent:
+        return jsonify({"error": "Parent lemma not found"}), 404
+
+    lsj.execute(
+        "UPDATE lsj_family_candidates SET parent_lemma_id = ?, parent_headword = ? WHERE id = ?",
+        (new_parent_id, parent["lemma"], candidate_id),
+    )
+    lsj.commit()
+
+    return jsonify({"status": "ok", "parent_lemma_id": new_parent_id, "parent_lemma": parent["lemma"]})
+
+
+# ─────────────────────────────────────────────
+# GET /api/lsj/review/stats
+# Overall review progress stats
+# ─────────────────────────────────────────────
+@app.route("/api/lsj/review/stats")
+@require_superuser
+def lsj_review_stats():
+    lsj = get_lsj_db()
+    if not lsj:
+        return jsonify({"error": "LSJ staging database not found"}), 404
+
+    return jsonify({
+        "definitions": {
+            "pending": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='pending'").fetchone()["c"],
+            "approved": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='approved'").fetchone()["c"],
+            "rejected": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE def_status='rejected'").fetchone()["c"],
+            "missing_defs": lsj.execute("SELECT COUNT(*) as c FROM lsj_matches WHERE missing_current_def=1 AND def_status='pending'").fetchone()["c"],
+        },
+        "families": {
+            "pending": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='pending'").fetchone()["c"],
+            "approved": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='approved'").fetchone()["c"],
+            "rejected": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='rejected'").fetchone()["c"],
+            "actionable": lsj.execute("SELECT COUNT(*) as c FROM lsj_family_candidates WHERE family_status='pending' AND child_lemma_id IS NOT NULL AND parent_lemma_id IS NOT NULL").fetchone()["c"],
+        },
+    })
 
 
 # ─────────────────────────────────────────────

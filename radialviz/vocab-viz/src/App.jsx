@@ -2134,6 +2134,267 @@ function EditHistoryPanel({ onClose, onRevert }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   SUPERUSER: LSJ Review Panel
+   Two tabs: Definition review and Family review.
+   ═══════════════════════════════════════════════════ */
+function LSJReviewPanel({ onClose, onUpdate }) {
+  const [tab, setTab] = useState("definitions"); // "definitions" | "families"
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({});
+  const [search, setSearch] = useState("");
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [actionableOnly, setActionableOnly] = useState(true);
+  const [acting, setActing] = useState(null); // id being acted on
+  const [editDef, setEditDef] = useState({}); // {id: editedText}
+  const LIMIT = 15;
+
+  const loadItems = useCallback((off = 0) => {
+    setLoading(true);
+    const base = tab === "definitions"
+      ? `${API}/lsj/review/definitions?status=pending&limit=${LIMIT}&offset=${off}${missingOnly ? "&missing_only=1" : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`
+      : `${API}/lsj/review/families?status=pending&limit=${LIMIT}&offset=${off}${actionableOnly ? "&actionable=1" : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`;
+    fetch(base)
+      .then(r => r.json())
+      .then(data => {
+        setItems(data.items || []);
+        setTotal(data.total || 0);
+        setOffset(off);
+        setStats(data.stats || {});
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [tab, missingOnly, actionableOnly, search]);
+
+  useEffect(() => { loadItems(0); }, [loadItems]);
+
+  const doAction = (id, action, body = {}) => {
+    setActing(id);
+    const url = tab === "definitions"
+      ? `${API}/lsj/review/definitions/${id}/${action}`
+      : `${API}/lsj/review/families/${id}/${action}`;
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => {
+        setActing(null);
+        if (data.status === "ok") {
+          loadItems(offset);
+          if (onUpdate) onUpdate();
+        } else {
+          alert(data.error || "Action failed");
+        }
+      })
+      .catch(() => { setActing(null); alert("Request failed"); });
+  };
+
+  const tabBtn = (label, value) => (
+    <button onClick={() => { setTab(value); setOffset(0); }} style={{
+      background: tab === value ? T.gold : T.raised,
+      color: tab === value ? T.bg : T.text,
+      border: tab === value ? "none" : `1px solid ${T.border}`,
+      borderRadius: 4, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+        width: 680, maxHeight: "85vh", boxShadow: "0 8px 32px rgba(0,0,0,.5)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: "12px 16px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          {tabBtn("Definitions", "definitions")}
+          {tabBtn("Families", "families")}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, color: T.dim }}>
+            {tab === "definitions"
+              ? `${stats.pending || 0} pending · ${stats.missing || 0} missing`
+              : `${stats.actionable || 0} actionable · ${stats.pending || 0} pending`
+            }
+          </span>
+        </div>
+
+        {/* Filters */}
+        <div style={{
+          padding: "8px 16px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search lemma..."
+            style={{
+              flex: 1, background: T.bg, border: `1px solid ${T.borderL}`,
+              borderRadius: 4, padding: "4px 8px", color: T.text, fontSize: 12,
+              fontFamily: T.font, outline: "none",
+            }}
+            onKeyDown={e => { if (e.key === "Enter") loadItems(0); }}
+          />
+          {tab === "definitions" && (
+            <label style={{ fontSize: 11, color: T.dim, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <input type="checkbox" checked={missingOnly} onChange={e => setMissingOnly(e.target.checked)} />
+              Missing only
+            </label>
+          )}
+          {tab === "families" && (
+            <label style={{ fontSize: 11, color: T.dim, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <input type="checkbox" checked={actionableOnly} onChange={e => setActionableOnly(e.target.checked)} />
+              Actionable only
+            </label>
+          )}
+        </div>
+
+        {/* Items list */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+          {loading ? (
+            <div style={{ padding: 20, textAlign: "center", color: T.dim }}>Loading...</div>
+          ) : items.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: T.dim }}>No items to review</div>
+          ) : tab === "definitions" ? (
+            /* Definition review items */
+            items.map(item => (
+              <div key={item.id} style={{
+                padding: "10px 16px", borderBottom: `1px solid ${T.border}22`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: T.gold, fontFamily: T.font }}>{item.lemma}</span>
+                  <span style={{ fontSize: 10, color: T.dim, background: T.raised, padding: "1px 5px", borderRadius: 3 }}>{item.match_type}</span>
+                  {item.missing_current_def ? (
+                    <span style={{ fontSize: 10, color: T.red, background: "rgba(196,87,74,0.15)", padding: "1px 5px", borderRadius: 3 }}>MISSING DEF</span>
+                  ) : null}
+                </div>
+                <div style={{ fontSize: 12, color: T.dim, marginBottom: 3 }}>
+                  <b>Current:</b> {item.current_short_def || <i style={{ color: T.red }}>none</i>}
+                </div>
+                <div style={{ fontSize: 12, color: T.text, marginBottom: 4 }}>
+                  <b>LSJ:</b> {item.lsj_short_def || item.lsj_full_def || <i style={{ color: T.dim }}>no definition</i>}
+                </div>
+                {/* Editable override */}
+                <input
+                  value={editDef[item.id] !== undefined ? editDef[item.id] : (item.lsj_short_def || item.lsj_full_def || "")}
+                  onChange={e => setEditDef(prev => ({ ...prev, [item.id]: e.target.value }))}
+                  style={{
+                    width: "100%", background: T.bg, border: `1px solid ${T.borderL}`,
+                    borderRadius: 4, padding: "4px 8px", color: T.text, fontSize: 12,
+                    fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6,
+                  }}
+                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => doAction(item.id, "approve", {
+                      definition: editDef[item.id] !== undefined ? editDef[item.id] : undefined
+                    })}
+                    disabled={acting === item.id}
+                    style={{
+                      background: T.green, border: "none", borderRadius: 4, padding: "3px 10px",
+                      color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >{acting === item.id ? "..." : "Approve"}</button>
+                  <button
+                    onClick={() => doAction(item.id, "reject")}
+                    disabled={acting === item.id}
+                    style={{
+                      background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px",
+                      color: T.dim, fontSize: 11, cursor: "pointer",
+                    }}
+                  >Skip</button>
+                </div>
+              </div>
+            ))
+          ) : (
+            /* Family review items */
+            items.map(item => (
+              <div key={item.id} style={{
+                padding: "10px 16px", borderBottom: `1px solid ${T.border}22`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text, fontFamily: T.font }}>{item.child_headword}</span>
+                  <span style={{ fontSize: 11, color: T.dim }}>→</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.gold, fontFamily: T.font }}>{item.parent_headword}</span>
+                  <span style={{ fontSize: 10, color: T.dim, background: T.raised, padding: "1px 5px", borderRadius: 3 }}>{item.relation_type}</span>
+                </div>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 2 }}>
+                  Child: {item.child_lemma_id ? `#${item.child_lemma_id}` : <span style={{ color: T.red }}>not in vocab</span>}
+                  {item.child_family ? ` · Family: ${item.child_family.root}` : " · no family"}
+                  {" | "}
+                  Parent: {item.parent_lemma_id ? `#${item.parent_lemma_id}` : <span style={{ color: T.red }}>not in vocab</span>}
+                  {item.parent_family ? ` · Family: ${item.parent_family.root}` : " · no family"}
+                </div>
+                {item.child_family && item.parent_family && item.child_family.id === item.parent_family.id ? (
+                  <div style={{ fontSize: 11, color: T.green, marginBottom: 4 }}>Already in same family</div>
+                ) : null}
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  <button
+                    onClick={() => doAction(item.id, "approve", { relation: "derived" })}
+                    disabled={acting === item.id || !item.child_lemma_id || !item.parent_lemma_id}
+                    style={{
+                      background: (item.child_lemma_id && item.parent_lemma_id) ? T.green : T.raised,
+                      border: "none", borderRadius: 4, padding: "3px 10px",
+                      color: "#fff", fontSize: 11, fontWeight: 600,
+                      cursor: (item.child_lemma_id && item.parent_lemma_id) ? "pointer" : "not-allowed",
+                      opacity: (item.child_lemma_id && item.parent_lemma_id) ? 1 : 0.5,
+                    }}
+                  >{acting === item.id ? "..." : "Add to Family"}</button>
+                  <button
+                    onClick={() => doAction(item.id, "reject")}
+                    disabled={acting === item.id}
+                    style={{
+                      background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px",
+                      color: T.dim, fontSize: 11, cursor: "pointer",
+                    }}
+                  >Skip</button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Pagination + Close */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 16px", borderTop: `1px solid ${T.border}`,
+        }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            {offset > 0 && (
+              <button onClick={() => loadItems(Math.max(0, offset - LIMIT))} style={{
+                background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                padding: "4px 10px", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Prev</button>
+            )}
+            {offset + LIMIT < total && (
+              <button onClick={() => loadItems(offset + LIMIT)} style={{
+                background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+                padding: "4px 10px", color: T.text, fontSize: 12, cursor: "pointer",
+              }}>Next</button>
+            )}
+            <span style={{ fontSize: 11, color: T.dim, alignSelf: "center" }}>
+              {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}
+            </span>
+          </div>
+          <button onClick={onClose} style={{
+            background: T.raised, border: `1px solid ${T.border}`, borderRadius: 4,
+            padding: "4px 14px", color: T.text, fontSize: 12, cursor: "pointer",
+          }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    SUPERUSER: Link Family Modal
    Search for another family and create a visual link.
    ═══════════════════════════════════════════════════ */
@@ -2612,6 +2873,7 @@ export default function App() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showLSJReview, setShowLSJReview] = useState(false);
   const [linkedFamilies, setLinkedFamilies] = useState([]);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
@@ -3028,6 +3290,10 @@ export default function App() {
                   background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
                   color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}>History</button>
+                <button onClick={() => setShowLSJReview(true)} style={{
+                  background: T.raised, border: `1px solid ${T.borderL}`, borderRadius: 4, padding: "3px 10px",
+                  color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>LSJ Review</button>
                 <SuperuserSearch familyId={family.id} familyMembers={family.members} onDone={bumpFamily} />
                 <div style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: T.dim, fontStyle: "italic" }}>Right-click a node to edit · Drag to reparent</span>
@@ -3161,6 +3427,14 @@ export default function App() {
           <EditHistoryPanel
             onClose={() => setShowHistoryPanel(false)}
             onRevert={bumpFamily}
+          />
+        )}
+
+        {/* Superuser: LSJ Review Panel */}
+        {showLSJReview && (
+          <LSJReviewPanel
+            onClose={() => setShowLSJReview(false)}
+            onUpdate={bumpFamily}
           />
         )}
 

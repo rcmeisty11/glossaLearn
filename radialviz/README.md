@@ -363,6 +363,7 @@ The widget is included in the standard build. Running `npm run build` produces b
 | `build_sentences.py` | Populates `sentences` and `sentence_lemmas` tables from lemmatized XML |
 | `improve_families.py` | Enriches derivational families using Morpheus stem data |
 | `add_work.py` | Ingest a single new work into an existing database (with forms, occurrences, sentences) |
+| `parse_lsj.py` | Parse LSJLogeion XML into a staging DB, match definitions and build family candidates |
 | `sync_edits.py` | Sync local superuser family edits to the production API on Lightsail |
 | `sync_work.py` | Push a newly ingested work (all data) to the production database on Lightsail via SSH |
 | `download_greek_data.sh` | Downloads source Greek text data |
@@ -390,7 +391,13 @@ Derivational families group Greek words that share a common root (e.g. βάλλ�
 
    The Morpheus data is converted from Perseus Beta Code to Unicode, matched against the lemma table, and used to: create new families from shared stems, set hierarchical parent-child links within families, and merge families that Morpheus reveals share the same root. Existing manually curated families are preserved and enriched, not overwritten.
 
-3. **Superuser curation**: A superuser mode enables manual refinement of family connections — linking related families, splitting subtrees, and correcting automated groupings. As the dataset grows, additional editors may be granted access to further curate the derivational data.
+3. **LSJ Logeion enrichment** (`parse_lsj.py`): A third pass uses TEI XML data from the [LSJLogeion](https://github.com/helmadik/LSJLogeion) digitized edition of the Liddell-Scott-Jones Greek-English Lexicon to improve both definitions and family connections. The script parses 86 XML files (~117,000 entries) and extracts:
+   - **Definitions**: Short and full LSJ definitions are matched against the lemma table (via exact, normalized, and fuzzy verb-variant matching) and used to replace missing or malformed definitions across `lemmas.short_def`, `lemmas.lsj_def`, and the `definitions` table.
+   - **Etymology and morpheme data**: `<etym>` tags and hyphenated `orth_orig` attributes provide morpheme boundary analysis, identifying compound word structure (prefix + stem) and etymological roots. These are used to generate derivational family candidates linking words that share roots or compound elements.
+
+   Matched data is staged in a separate `lsj_staging.db` for review before being committed to the main database.
+
+4. **Superuser curation**: A superuser mode enables manual refinement of family connections — linking related families, splitting subtrees, and correcting automated groupings. As the dataset grows, additional editors may be granted access to further curate the derivational data.
 
 ### Cross-Family Links
 
@@ -425,6 +432,10 @@ The Morpheus data is licensed under a [Creative Commons Attribution-ShareAlike 3
 - The Morpheus stem files are downloaded at build time and cached locally; they are not redistributed in this repository.
 
 Lexicon data (LSJ, Middle Liddell) is similarly sourced from [PerseusDL/lexica](https://github.com/PerseusDL/lexica) under the same CC BY-SA 3.0 US license.
+
+The digitized LSJ lexicon data used for definition enrichment and derivational family expansion is from the [LSJLogeion](https://github.com/helmadik/LSJLogeion) project:
+
+> Helma Dik. *LSJLogeion: A digitized Liddell-Scott-Jones Greek-English Lexicon*. University of Chicago. [github.com/helmadik/LSJLogeion](https://github.com/helmadik/LSJLogeion)
 
 ## Build Scripts
 
