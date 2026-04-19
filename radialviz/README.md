@@ -36,6 +36,7 @@ GLOSSALEARN_SUPERUSER=1 python3 serve_api.py
 - **Frontend**: React single-page app with D3.js radial visualization (`vocab-viz/src/App.jsx`)
 - **Database**: `greek_vocab.db` (~2.1 GB) containing the full Greek corpus with morphology, lemmatization, and occurrence data
 - **Production**: Deployed on AWS Lightsail with API at `https://apiaws.glossalearn.com`
+- **Database Access for researchers**: The entire database with the tables below are available for download for other researchers to use. Please write (randallcraigmeister@gmail.com) for access to the download link to the database.
 
 ## Database Schema
 
