@@ -978,6 +978,222 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
 }
 
 /* ═══════════════════════════════════════════════════
+   FAMILY LIST VIEW — hierarchical indented list
+   Left pane: parent/children/grandchildren tree
+   Right pane: linked families for clicked word
+   ═══════════════════════════════════════════════════ */
+function FamilyListView({ family, selectedWord, detailWord, onSelectMember, linkedFamilies, width, height }) {
+  const [selectedLinkedId, setSelectedLinkedId] = useState(null);
+
+  if (!family || !family.members || family.members.length === 0) {
+    return (
+      <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center", color: T.dim, fontSize: 14, fontStyle: "italic" }}>
+        Select a word to see its family
+      </div>
+    );
+  }
+
+  // Build hierarchy from flat members list
+  const members = [...family.members];
+  let rootIdx = members.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...members.filter(x => x.relation === "root").map(x => x.total_occurrences)));
+  if (rootIdx < 0) rootIdx = 0;
+  const root = members[rootIdx];
+  const others = members.filter((_, i) => i !== rootIdx);
+
+  const memberById = new Map(members.map(m => [m.id, m]));
+  const childrenOf = new Map();
+  others.forEach(m => {
+    const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : root.id;
+    if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+    childrenOf.get(pid).push(m);
+  });
+
+  // Sort children alphabetically by lemma
+  for (const [, children] of childrenOf) {
+    children.sort((a, b) => a.lemma.localeCompare(b.lemma));
+  }
+
+  // Find which linked families a member belongs to
+  const memberLinkedFamilies = (memberId) => {
+    if (!linkedFamilies) return [];
+    return linkedFamilies.filter(lf =>
+      lf.shared_members?.includes(memberId) || lf.members?.some(m => m.id === memberId)
+    );
+  };
+
+  // Render a single member row
+  const renderMember = (m, depth) => {
+    const isSelected = m.id === selectedWord?.id;
+    const isDetail = m.id === detailWord?.id;
+    const clr = POS_CLR[m.pos] || T.dim;
+    const children = childrenOf.get(m.id) || [];
+    const mLinked = memberLinkedFamilies(m.id);
+    const hasLinks = mLinked.length > 0;
+
+    return (
+      <div key={m.id}>
+        <div
+          onClick={() => onSelectMember(m)}
+          onMouseEnter={e => { if (!isDetail) e.currentTarget.style.background = T.hover; }}
+          onMouseLeave={e => { if (!isDetail) e.currentTarget.style.background = isDetail ? T.goldGlow : "transparent"; }}
+          style={{
+            display: "flex", alignItems: "baseline", gap: 6,
+            padding: "5px 10px 5px " + (16 + depth * 20) + "px",
+            cursor: "pointer",
+            background: isDetail ? T.goldGlow : "transparent",
+            borderLeft: isDetail ? `3px solid ${T.gold}` : "3px solid transparent",
+          }}
+        >
+          {depth > 0 && (
+            <span style={{ color: T.borderL, fontSize: 12, marginRight: 2 }}>
+              {"└".repeat(1)}
+            </span>
+          )}
+          <span style={{
+            fontFamily: T.font, fontSize: 16,
+            color: isSelected ? T.gold : isDetail ? T.gold : T.bright,
+            fontWeight: isSelected || isDetail ? 700 : 400,
+          }}>{m.lemma}</span>
+          <span style={{ fontSize: 11, color: clr, fontWeight: 600, flexShrink: 0 }}>{m.pos}</span>
+          <span style={{
+            fontSize: 12, color: T.dim, fontStyle: "italic",
+            flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{m.short_def}</span>
+          <span style={{ fontSize: 11, color: T.dim, flexShrink: 0 }}>×{m.total_occurrences?.toLocaleString()}</span>
+          {hasLinks && (
+            <span
+              onClick={e => { e.stopPropagation(); setSelectedLinkedId(prev => prev === m.id ? null : m.id); }}
+              title="Show linked families"
+              style={{
+                fontSize: 11, color: T.blue, cursor: "pointer", flexShrink: 0,
+                padding: "0 4px", borderRadius: 3,
+                background: selectedLinkedId === m.id ? "rgba(90,143,180,0.2)" : "transparent",
+              }}
+            >⟷ {mLinked.length}</span>
+          )}
+          {m.relation && m.relation !== "root" && (
+            <span style={{ fontSize: 10, color: T.dim, flexShrink: 0, opacity: 0.7 }}>{m.relation}</span>
+          )}
+        </div>
+        {children.map(child => renderMember(child, depth + 1))}
+      </div>
+    );
+  };
+
+  // Build linked families for the right pane
+  const activeMemberId = selectedLinkedId;
+  const activeLinked = activeMemberId ? memberLinkedFamilies(activeMemberId) : (linkedFamilies || []);
+
+  // Render a linked family as an indented list
+  const renderLinkedFamily = (lf) => {
+    const lMembers = [...lf.members];
+    let lRootIdx = lMembers.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...lMembers.filter(x => x.relation === "root").map(x => x.total_occurrences)));
+    if (lRootIdx < 0) lRootIdx = 0;
+    const lRoot = lMembers[lRootIdx];
+    const lOthers = lMembers.filter((_, i) => i !== lRootIdx);
+
+    const lMemberById = new Map(lMembers.map(m => [m.id, m]));
+    const lChildrenOf = new Map();
+    lOthers.forEach(m => {
+      const pid = (m.parent_lemma_id && lMemberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : lRoot.id;
+      if (!lChildrenOf.has(pid)) lChildrenOf.set(pid, []);
+      lChildrenOf.get(pid).push(m);
+    });
+
+    for (const [, children] of lChildrenOf) {
+      children.sort((a, b) => a.lemma.localeCompare(b.lemma));
+    }
+
+    const renderLinkedMember = (m, depth) => {
+      const clr = POS_CLR[m.pos] || T.dim;
+      const isShared = lf.shared_members?.includes(m.id) || family.members.some(fm => fm.id === m.id);
+      const children = lChildrenOf.get(m.id) || [];
+      return (
+        <div key={m.id}>
+          <div
+            onClick={() => onSelectMember(m)}
+            onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            style={{
+              display: "flex", alignItems: "baseline", gap: 6,
+              padding: "4px 8px 4px " + (12 + depth * 18) + "px",
+              cursor: "pointer",
+            }}
+          >
+            {depth > 0 && <span style={{ color: T.borderL, fontSize: 11 }}>└</span>}
+            <span style={{
+              fontFamily: T.font, fontSize: 15,
+              color: isShared ? T.blue : T.bright,
+              fontWeight: isShared ? 600 : 400,
+            }}>{m.lemma}</span>
+            <span style={{ fontSize: 10, color: clr, fontWeight: 600 }}>{m.pos}</span>
+            <span style={{
+              fontSize: 11, color: T.dim, fontStyle: "italic",
+              flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>{m.short_def}</span>
+          </div>
+          {children.map(child => renderLinkedMember(child, depth + 1))}
+        </div>
+      );
+    };
+
+    return (
+      <div key={lf.id} style={{ marginBottom: 16 }}>
+        <div style={{
+          padding: "6px 10px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: T.bright, fontFamily: T.font }}>{lf.label || lf.root || `Family ${lf.id}`}</span>
+          {lf.link_type && <span style={{ fontSize: 10, color: T.dim, padding: "1px 5px", border: `1px solid ${T.borderL}`, borderRadius: 3 }}>{lf.link_type}</span>}
+          {lf.note && <span style={{ fontSize: 10, color: T.dim, fontStyle: "italic" }}>{lf.note}</span>}
+        </div>
+        {renderLinkedMember(lRoot, 0)}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ width, height, display: "flex", overflow: "hidden" }}>
+      {/* Left pane: main family list */}
+      <div style={{
+        flex: activeLinked.length > 0 ? "0 0 55%" : "1 1 100%",
+        overflowY: "auto", borderRight: activeLinked.length > 0 ? `1px solid ${T.border}` : "none",
+      }}>
+        <div style={{
+          padding: "8px 12px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.gold, fontFamily: T.font }}>{family.label || family.root || `Family ${family.id}`}</span>
+          <span style={{ fontSize: 12, color: T.dim }}>{members.length} members</span>
+        </div>
+        {renderMember(root, 0)}
+      </div>
+
+      {/* Right pane: linked families */}
+      {activeLinked.length > 0 && (
+        <div style={{ flex: "0 0 45%", overflowY: "auto", background: T.surface }}>
+          <div style={{
+            padding: "8px 12px", borderBottom: `1px solid ${T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.blue }}>
+              Linked Families {activeMemberId ? `(for ${memberById.get(activeMemberId)?.lemma || "..."})` : ""}
+            </span>
+            {activeMemberId && (
+              <button onClick={() => setSelectedLinkedId(null)} style={{
+                background: "transparent", border: `1px solid ${T.borderL}`, borderRadius: 3,
+                color: T.dim, fontSize: 10, cursor: "pointer", padding: "1px 6px",
+              }}>Show all</button>
+            )}
+          </div>
+          {activeLinked.map(lf => renderLinkedFamily(lf))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    SENTENCES TAB (inside FormsPanel)
    ═══════════════════════════════════════════════════ */
 function SentencesTab({ lemmaId, lemma, works, activeWorkId }) {
@@ -2877,7 +3093,7 @@ export default function App() {
   const [linkedFamilies, setLinkedFamilies] = useState([]);
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
-  const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst"
+  const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst" | "list"
   const [vocabLimit, setVocabLimit] = useState(500);
   const [headerSearch, setHeaderSearch] = useState("");
   const [headerResults, setHeaderResults] = useState([]);
@@ -2896,6 +3112,20 @@ export default function App() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Pre-load λόγος on initial page load
+  useEffect(() => {
+    fetch(`${API}/lemma/by-name/${encodeURIComponent("λόγος")}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.id) {
+          setSelectedWord(d);
+          setDetailWord(d);
+          setRightPinned(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Debounced search
@@ -3347,13 +3577,13 @@ export default function App() {
                 </div>
               )}
               <div><span style={{ fontSize: 11, color: T.dim }}>View:</span>
-                {["tree", "sunburst"].map(m => (
+                {["tree", "sunburst", "list"].map(m => (
                   <button key={m} onClick={() => setVizMode(m)} style={{
                     background: vizMode === m ? T.bright : "transparent",
                     color: vizMode === m ? T.bg : T.dim,
                     border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
                     borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  }}>{m === "tree" ? "Tree" : "Sunburst"}</button>
+                  }}>{m === "tree" ? "Tree" : m === "sunburst" ? "Sunburst" : "List"}</button>
                 ))}</div>
 
             </div>
@@ -3363,6 +3593,11 @@ export default function App() {
                 <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
                   onSelectMember={m => setDetailWord(m)}
                   onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
+                  linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
+                  width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
+              ) : vizMode === "list" ? (
+                <FamilyListView family={family} selectedWord={selectedWord} detailWord={detailWord}
+                  onSelectMember={m => setDetailWord(m)}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                   width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
               ) : (
