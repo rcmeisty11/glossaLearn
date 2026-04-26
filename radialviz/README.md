@@ -450,3 +450,154 @@ The digitized LSJ lexicon data used for definition enrichment and derivational f
 | `repair_database.py` | General database repair utilities |
 | `repair_families_and_titles.py` | Fixes family groupings and work titles |
 | `./speech/download_datasets.sh` | Download and index speech corpora |
+
+## LTI
+
+GlossLearn will soon have an LTI integration (tested with Canvas)
+
+### How to run Canvas?
+
+Canvas can be exceptionally difficult to run
+
+[Here](https://gist.github.com/jonloureiro/3a1e1a5c49d4ac3a5805d37c247f0ab5) is the best guide to doing so. I recommend initializing a t2.medium tier Amazon EC2 Ubuntu instance. Check out to the latest commit. You should also add in the example dynamic_settings in `config-override` and then map this file in the docker compose override file. Your deployment URL (for the `.env.canvas` and `Caddyfile`) will be the same dns name as your EC2 instance. If you want this to run at some URL, setup a static IPV4/6 for your EC2 instance and add A/AAAA records to your dns server. Note: You will need to do this if you wish to avoid updating these 2 files everytime you start and stop your EC2 instance.
+
+You will need to create a user and make them an admin. Often you will need to run commands in the Ruby shell.
+
+Run `docker exec canvas-self-hosted-web-1 bundle exec rails console` to get there.
+
+In the Ruby shell, run:
+
+```ruby
+user = User.create!(
+  name: "Your Name",
+  short_name: "Your Name",
+  sortable_name: "Name, Your"
+)
+
+Pseudonym.create!(
+  user: user,
+  account: Account.default,
+  unique_id: "you@example.com",
+  password: "password123",
+  password_confirmation: "password123"
+)
+```
+```
+Account.site_admin.account_users.where(user_id: user,
+  role_id: Role.get_built_in_role("AccountAdmin", root_account_id: Account.site_admin.id)
+).first_or_create!
+```
+
+Now you can login to Canvas with an Admin user and add LTI apps.
+
+### Running Tool Locally
+
+Run backend as normal
+
+Install tailscale
+
+Login on EC2 and dev machine
+
+`tailscale serve BACKEND_PORT`
+
+Use spit out URL for next steps
+
+
+### How to add LTI app
+
+You will need to create an LTI dev key. Go to `Site Admin` via `Admin`, then hit `Developer Keys`. 
+
+`+Developer Key > LTI KEY`
+
+Change input to JSON and paste this (perms are wide! can limit as needed):
+
+```json
+{
+  "title": "GlossLearn",
+  "description": "GlossaLearn",
+  "target_link_uri": "https://TOOL_URL/launch/",
+  "oidc_initiation_url": "https://TOOL_URL/login/",
+  "oidc_initiation_urls": {},
+  "public_jwk_url": "https://TOOL_URL/jwks/",
+  "public_jwk": null,
+  "custom_fields": {},
+  "scopes": [
+    "https://purl.imsglobal.org/spec/lti-reg/scope/registration.readonly",
+    "https://purl.imsglobal.org/spec/lti-reg/scope/registration",
+    "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem",
+    "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly",
+    "https://purl.imsglobal.org/spec/lti-ags/scope/result.readonly",
+    "https://purl.imsglobal.org/spec/lti-ags/scope/score",
+    "https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly",
+    "https://purl.imsglobal.org/spec/lti/scope/noticehandlers",
+    "https://canvas.instructure.com/lti/public_jwk/scope/update",
+    "https://canvas.instructure.com/lti/account_lookup/scope/show",
+    "https://canvas.instructure.com/lti-ags/progress/scope/show",
+    "https://canvas.instructure.com/lti/page_content/show"
+  ],
+  "extensions": [
+    {
+      "domain": "",
+      "tool_id": "",
+      "privacy_level": "anonymous",
+      "platform": "canvas.instructure.com",
+      "settings": {
+        "platform": "canvas.instructure.com",
+        "placements": [
+          {
+            "title": "My Tool",
+            "placement": "course_navigation",
+            "message_type": "LtiResourceLinkRequest",
+            "target_link_uri": "https://TOOL_URL/launch/"
+          },
+          {
+            "placement": "account_navigation",
+            "message_type": "LtiResourceLinkRequest"
+          },
+          {
+            "placement": "link_selection",
+            "message_type": "LtiResourceLinkRequest"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+TOOL_URL will be either the production tool deployment or the Tailscale serve deployment. Ensure you have both EC2 and your dev machine are logged into Tailscale.
+
+### Next steps for LTI
+
+We don't currently have the LTI integration ready
+
+We based our bare-bones implementation off of: https://github.com/dmitry-viskov/pylti1.3-flask-example
+
+Which depends on [this](https://github.com/dmitry-viskov/pylti1.3) old Python LTI 1.3 implementation, which has since been forked by the community [here](https://github.com/pymsglobal/pylti1p3next).
+
+We forked the old start and switched to the new version without any problems. 
+
+When you use that starter, add the following to `configs/game.json`:
+
+```json
+"CANVAS_DEPLOYMENT_URL": [{
+        "client_id": "10000000000001",
+        "auth_login_url": "https://CANVAS_DEPLOYMENT_URL/api/lti/authorize_redirect",
+        "auth_token_url": "https://CANVAS_DEPLOYMENT_URL/login/oauth2/token",
+        "key_set_url": "https://CANVAS_DEPLOYMENT_URL/api/lti/security/jwks",
+        "key_set": null,
+        "private_key_file": "private.key",
+        "public_key_file": "public.key",
+        "deployment_ids": ["depid"]
+    }]
+```
+
+Update depid once you add LTI key.
+
+Add test canvas user to your course however you see fit.
+
+This starter should work and it does everything that is needed for the GlossaLearn LTI integration.
+
+Reach out to GLEngineer if you have any error codes or need help debugging
+
+The next steps are to get a basic in-memory demo of our 3 assignments, get this working outside ephemeral caches and get this to work for general deployments/enable users to easily add our app to their Canvas instance.
