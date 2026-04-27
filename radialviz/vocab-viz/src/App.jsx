@@ -96,6 +96,192 @@ function useApi(url, loadingCtx) {
 }
 
 /* ═══════════════════════════════════════════════════
+   GUIDED TOUR
+   Popovers anchored to actual UI elements via
+   data-tour="stepId" attributes.
+   ═══════════════════════════════════════════════════ */
+const TOUR_STEPS = [
+  {
+    id: "welcome",
+    title: "Welcome to ΓΛΩΣΣΑ",
+    body: "This tool helps you explore Ancient Greek vocabulary through etymological family trees. Let's take a quick tour of the main features!",
+    anchor: null, // centered on screen
+  },
+  {
+    id: "search",
+    title: "Search for Greek Words",
+    body: "Type any Greek word here. Matching results appear in a dropdown — click one or press Enter to explore its family tree.",
+    anchor: "tour-search", place: "below",
+  },
+  {
+    id: "works",
+    title: "Works & Authors",
+    body: "Browse by author and text. Expand an author to see their works, then select one to filter the vocabulary to words from that text.",
+    anchor: "tour-works", place: "right",
+  },
+  {
+    id: "wordlist",
+    title: "Vocabulary Word List",
+    body: "All the words for your selected works appear here. Sort by frequency or alphabetically, filter by part of speech (the colored dots), and click any word to see its family.",
+    anchor: "tour-wordlist", place: "right",
+  },
+  {
+    id: "views",
+    title: "Visualization Views",
+    body: "Switch between Tree, Sunburst, and List views to explore word families in different ways. Each view highlights etymological relationships differently.",
+    anchor: "tour-views", place: "below",
+  },
+  {
+    id: "scope",
+    title: "All Works vs. This Work",
+    body: "When you have a work selected, toggle between \"All Works\" (every occurrence across the corpus) and \"This Work\" (only occurrences in the selected text).",
+    anchor: "tour-scope", place: "below",
+  },
+  {
+    id: "family",
+    title: "Family Tree",
+    body: "The center panel shows the etymological family tree for the selected word. Nodes represent related words — click any node to see its details on the right.",
+    anchor: "tour-family", place: "left",
+  },
+  {
+    id: "details",
+    title: "Word Details — Forms, Sents & Pronounce",
+    body: "The right panel has tabs: Forms shows all morphological forms, Sents shows example sentences from texts, and Pronounce lets you practice speaking the word aloud.",
+    anchor: "tour-details", place: "left",
+  },
+];
+
+function GuidedTour({ step, onNext, onBack, onClose }) {
+  const s = TOUR_STEPS[step];
+  const [pos, setPos] = useState(null);
+  const popoverRef = useRef(null);
+  const animKey = useRef(0);
+
+  // Recalculate position when step changes
+  useEffect(() => {
+    animKey.current++;
+    if (!s || !s.anchor) { setPos(null); return; }
+    const el = document.querySelector(`[data-tour="${s.anchor}"]`);
+    if (!el) { setPos(null); return; }
+
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setPos({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height });
+    };
+    update();
+    // Update on scroll/resize
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
+  }, [step, s]);
+
+  if (!s) return null;
+
+  const isCentered = !s.anchor;
+  const CARD_W = 320;
+  const GAP = 12;
+
+  // Compute popover style
+  let popStyle = {};
+  if (isCentered) {
+    popStyle = { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
+  } else if (pos) {
+    const place = s.place || "right";
+    if (place === "below") {
+      popStyle = { top: pos.bottom + GAP, left: Math.max(8, pos.left + pos.width / 2 - CARD_W / 2) };
+    } else if (place === "right") {
+      popStyle = { top: Math.max(8, pos.top), left: pos.right + GAP };
+    } else if (place === "left") {
+      popStyle = { top: Math.max(8, pos.top), left: Math.max(8, pos.left - CARD_W - GAP) };
+    }
+    // Clamp to viewport
+    if (popStyle.left + CARD_W > window.innerWidth - 8) popStyle.left = window.innerWidth - CARD_W - 8;
+    if (popStyle.top + 300 > window.innerHeight - 8) popStyle.top = window.innerHeight - 308;
+  } else {
+    // Fallback if element not found — center
+    popStyle = { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
+  }
+
+  // Highlight rect for the anchor element
+  const highlightStyle = pos && !isCentered ? {
+    position: "fixed", zIndex: 10001, pointerEvents: "none",
+    top: pos.top - 4, left: pos.left - 4,
+    width: pos.width + 8, height: pos.height + 8,
+    border: `2px solid ${T.gold}`, borderRadius: 6,
+    boxShadow: `0 0 0 9999px rgba(0,0,0,0.45), 0 0 20px ${T.goldGlow}`,
+  } : null;
+
+  return (
+    <>
+      {/* Backdrop — click to dismiss */}
+      {isCentered && <div onClick={onClose} style={{
+        position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.5)",
+      }} />}
+      {!isCentered && <div onClick={onClose} style={{
+        position: "fixed", inset: 0, zIndex: 10000, background: "transparent",
+      }} />}
+      {/* Highlight ring around target element */}
+      {highlightStyle && <div style={highlightStyle} />}
+      {/* Popover card */}
+      <div ref={popoverRef} key={animKey.current} style={{
+        position: "fixed", ...popStyle,
+        zIndex: 10002, width: CARD_W,
+        background: T.raised, border: `1px solid ${T.goldDim}`, borderRadius: 8,
+        padding: "20px 22px 16px",
+        boxShadow: `0 8px 32px rgba(0,0,0,.6), 0 0 0 1px ${T.border}`,
+        fontFamily: T.font,
+        animation: "tourFadeIn 0.25s ease-out",
+      }}>
+        {/* Step indicator */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: T.goldDim, fontFamily: T.mono, letterSpacing: 1 }}>
+            STEP {step + 1} OF {TOUR_STEPS.length}
+          </span>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: T.dim, fontSize: 16,
+            cursor: "pointer", padding: "0 2px", lineHeight: 1,
+          }}>&times;</button>
+        </div>
+        {/* Title */}
+        <div style={{ fontSize: T.lg, fontWeight: 700, color: T.bright, marginBottom: 8 }}>{s.title}</div>
+        {/* Body */}
+        <div style={{ fontSize: T.sm, color: T.text, lineHeight: 1.6, marginBottom: 16 }}>{s.body}</div>
+        {/* Progress dots */}
+        <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+          {TOUR_STEPS.map((_, i) => (
+            <div key={i} style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: i === step ? T.gold : T.border,
+              transition: "background 0.2s",
+            }} />
+          ))}
+        </div>
+        {/* Buttons */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: T.dim, fontSize: 12,
+            cursor: "pointer", fontFamily: T.font, textDecoration: "underline",
+          }}>Turn off tour</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {step > 0 && (
+              <button onClick={onBack} style={{
+                background: T.surface, border: `1px solid ${T.borderL}`, borderRadius: 4,
+                padding: "5px 14px", color: T.text, fontSize: 13, cursor: "pointer", fontFamily: T.font,
+              }}>Back</button>
+            )}
+            <button onClick={onNext} style={{
+              background: T.gold, border: "none", borderRadius: 4,
+              padding: "5px 14px", color: T.bg, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font,
+            }}>{step < TOUR_STEPS.length - 1 ? "Next" : "Finish"}</button>
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes tourFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    COLLAPSIBLE PANEL WRAPPER
    Collapsed: 40px strip with vertical label.
    Expanded: full width on hover.
@@ -1340,7 +1526,7 @@ function FormsPanel({ lemmaId, workId, scope, language }) {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+      <div data-tour="tour-details" style={{ display: "flex", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex: 1, padding: "7px 0", background: "none", border: "none",
@@ -3331,6 +3517,23 @@ export default function App() {
   };
   const [languageHeaderExpanded, setLanguageHeaderExpanded] = useState(false);
 
+  // Guided tour state
+  const [tourStep, setTourStep] = useState(-1); // -1 = inactive
+  useEffect(() => {
+    if (!localStorage.getItem("glossalearn_tour_seen")) {
+      setTourStep(0);
+    }
+  }, []);
+  const closeTour = useCallback(() => {
+    setTourStep(-1);
+    localStorage.setItem("glossalearn_tour_seen", "1");
+  }, []);
+  const nextTourStep = useCallback(() => {
+    setTourStep(prev => prev < TOUR_STEPS.length - 1 ? prev + 1 : -1);
+    if (tourStep >= TOUR_STEPS.length - 1) localStorage.setItem("glossalearn_tour_seen", "1");
+  }, [tourStep]);
+  const prevTourStep = useCallback(() => setTourStep(prev => Math.max(0, prev - 1)), []);
+
   return (
     <div style={{
       height: "100vh", display: "flex", flexDirection: "column",
@@ -3393,7 +3596,7 @@ export default function App() {
           }}>SUPERUSER</span>
         )}
         {/* Quick Greek word search */}
-        <div style={{ position: "relative", marginLeft: 12 }}>
+        <div data-tour="tour-search" style={{ position: "relative", marginLeft: 12 }}>
           <input ref={headerSearchRef}
             value={headerSearch}
             onChange={e => doHeaderSearch(e.target.value)}
@@ -3440,6 +3643,13 @@ export default function App() {
             Family: <strong style={{ color: T.gold }}>{family?.label || "loading..."}</strong>
           </span>
         )}
+        <button onClick={() => setTourStep(0)}
+          style={{ fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
+            fontFamily: T.mono, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
+            border: `1px solid ${T.border}`, background: "transparent", transition: "color 0.2s, border-color 0.2s" }}
+          onMouseEnter={e => { e.currentTarget.style.color = T.gold; e.currentTarget.style.borderColor = T.goldDim; }}
+          onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
+        >TOUR</button>
         <a href="/about.html"
           style={{ fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
             fontFamily: T.mono, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
@@ -3448,6 +3658,11 @@ export default function App() {
           onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
         >ABOUT</a>
       </header>
+
+      {/* Guided Tour */}
+      {tourStep >= 0 && (
+        <GuidedTour step={tourStep} onNext={nextTourStep} onBack={prevTourStep} onClose={closeTour} />
+      )}
 
       {/* Main layout */}
       {currentView === 0 && <>
@@ -3461,7 +3676,7 @@ export default function App() {
             expandedWidth={420} pinned={leftPinned} onTogglePin={() => setLeftPinned(p => !p)}>
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
               {/* Works panel */}
-              <div style={{
+              <div data-tour="tour-works" style={{
                 width: 200, flexShrink: 0, borderRight: `1px solid ${T.border}`,
                 display: "flex", flexDirection: "column", overflow: "hidden"
               }}>
@@ -3470,7 +3685,7 @@ export default function App() {
                   onToggleAuthor={toggleAuthor} onToggleWork={toggleWork} />
               </div>
               {/* Word list */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div data-tour="tour-wordlist" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <WordList vocab={vocab} selectedId={selectedWord?.id}
                   onSelect={w => { setSelectedWord(w); setDetailWord(w); setRightPinned(true); }}
                   sort={vocabSort} onSortChange={setVocabSort}
@@ -3559,7 +3774,7 @@ export default function App() {
               borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: T.surface
             }}>
               {hasWorkFilter && (
-                <div>
+                <div data-tour="tour-scope">
                   <span style={{ fontSize: 11, color: T.dim }}>Scope:</span>
                   {["all", "work"].map(s => (
                     <button key={s} onClick={() => setFamilyScope(s)} style={{
@@ -3576,7 +3791,7 @@ export default function App() {
                   )}
                 </div>
               )}
-              <div><span style={{ fontSize: 11, color: T.dim }}>View:</span>
+              <div data-tour="tour-views"><span style={{ fontSize: 11, color: T.dim }}>View:</span>
                 {["tree", "sunburst", "list"].map(m => (
                   <button key={m} onClick={() => setVizMode(m)} style={{
                     background: vizMode === m ? T.bright : "transparent",
@@ -3588,7 +3803,7 @@ export default function App() {
 
             </div>
 
-            <div style={{ flex: 1, position: "relative" }}>
+            <div data-tour="tour-family" style={{ flex: 1, position: "relative" }}>
               {vizMode === "sunburst" ? (
                 <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
                   onSelectMember={m => setDetailWord(m)}
