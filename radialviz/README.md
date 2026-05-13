@@ -601,3 +601,54 @@ This starter should work and it does everything that is needed for the GlossaLea
 Reach out to GLEngineer if you have any error codes or need help debugging
 
 The next steps are to get a basic in-memory demo of our 3 assignments, get this working outside ephemeral caches and get this to work for general deployments/enable users to easily add our app to their Canvas instance.
+
+### Specification
+
+- Instructors should be able to assign any of three assignments: translation, production (pronunciation), perception (understanding some spoken language)
+- Students should be able to complete any such assigned task
+- Instructors should be able to assign specific tasks to all of their students as an assignment (future, sequence of such tasks)
+- For a particular student, an instructur should be able to review a submission, for a grade, which is assigned to a student
+- Student grades should be forwarded to LMS (Canvas)
+Tentative designs:
+
+![create](create.png)
+![grade](grade.png)
+![complete (student)](complete.png)
+
+### Design
+
+Designs are a bit rough, with wiggle room (depending on information from canvas)
+
+Auth(n/z) is before these functions and thus implied
+
+#### DB Relations
+
+enums:
+- assignment enum (translation, perception, production)
+
+relationships: 
+
+- course (deployment id, section id, class instance id) (need to research how to disambiguate courses/other, pk all but instance_id)
+- assignment (course, assignment_id, assignment_enum, assignment_submission_id) (pk same as row - assignment enum, assignment_submission_id)
+- assignment score (course, assignment_id, student_id, assignment_score) (pk (course, assignment_id, student_id))
+- assignment_submission (course_id, assignment_id, assignment_submission_id, assignment_artifact) (artifact link to audio or raw translation/perception text)
+
+##### Extra indices
+
+We should be able to query all assignment scores via course (assignment scores by course)
+
+Everything else should at least be via PK
+
+
+#### Backend Methods
+
+We need the following methods (and implied objects sent as json over wire):
+
+- Get all submissions (take deployement_id, ret []submission)
+- Grade submission (take pk for submission, grade)
+- Create submission (take submission)
+- Submit submission (take pk for submission)
+
+#### Frontend
+
+See design as before
