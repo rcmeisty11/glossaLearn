@@ -417,7 +417,7 @@ function drawTree(g, family, opts) {
     }
 
     // Root badge for explicit linked families
-    if (isRoot && (linkedFamilies || []).some((lf) => !lf.shared_members || lf.shared_members.length === 0)) {
+    if (isRoot && (linkedFamilies || []).some((lf) => lf.link_type !== 'shared word')) {
       const badge = ng.append("g").style("cursor", "pointer");
       badge.append("circle").attr("cx", -w / 2 - 2).attr("cy", -h / 2 - 2)
         .attr("r", 8).attr("fill", showExplicitLinked ? T.gold : T.blue).attr("opacity", 0.9);
@@ -482,10 +482,8 @@ function drawTree(g, family, opts) {
   // Render linked families
   const linkedOffsets = [];
   const activeLinked = (linkedFamilies || []).filter((lf) => {
-    if (lf.shared_members && lf.shared_members.length > 0) {
-      return lf.shared_members.some((sid) => expandedCrossIds.has(sid));
-    }
-    return showExplicitLinked;
+    if (lf.link_type !== 'shared word') return showExplicitLinked;
+    return lf.shared_members && lf.shared_members.some((sid) => expandedCrossIds.has(sid));
   });
 
   if (activeLinked.length > 0) {
@@ -495,9 +493,36 @@ function drawTree(g, family, opts) {
       if (dist > mainMaxR) mainMaxR = dist;
     });
 
-    activeLinked.forEach((lf, li) => {
-      if (!lf.members || lf.members.length === 0) return;
+    // Pre-compute angles with minimum separation enforcement
+    const linkedValid = activeLinked.filter((lf) => lf.members && lf.members.length > 0);
+    const prefAngles = linkedValid.map((lf, li) => {
+      let angle = (li / linkedValid.length) * 2 * Math.PI - Math.PI / 2;
+      if (lf.shared_members && lf.shared_members.length > 0) {
+        for (const sid of lf.shared_members) {
+          const sp = posMap.get(sid);
+          if (sp && (sp.x !== 0 || sp.y !== 0)) { angle = Math.atan2(sp.y, sp.x); break; }
+        }
+      }
+      return angle;
+    });
+    const minGap = linkedValid.length > 0 ? Math.max((2 * Math.PI) / linkedValid.length, Math.PI / 4) : Math.PI / 4;
+    const sorted = prefAngles.map((a, i) => ({ i, a })).sort((x, y) => x.a - y.a);
+    for (let pass = 0; pass < 8; pass++) {
+      for (let k = 0; k < sorted.length; k++) {
+        const next = sorted[(k + 1) % sorted.length];
+        let diff = next.a - sorted[k].a;
+        if (k === sorted.length - 1) diff += 2 * Math.PI;
+        if (diff < minGap) {
+          const push = (minGap - diff) / 2;
+          sorted[k].a -= push;
+          next.a += push;
+        }
+      }
+    }
+    const finalAngles = new Array(linkedValid.length);
+    sorted.forEach(({ i, a }) => { finalAngles[i] = a; });
 
+    linkedValid.forEach((lf, li) => {
       const lMembers = [...lf.members];
       const lRootIdx = findRoot(lMembers);
       const lRoot = lMembers[lRootIdx];
@@ -510,13 +535,7 @@ function drawTree(g, family, opts) {
       const linkedR = lRing1Radius + nW + 60;
       const separation = mainMaxR + linkedR + 100;
 
-      let dirAngle = li * (Math.PI * 0.4) - ((activeLinked.length - 1) * Math.PI * 0.2);
-      if (lf.shared_members && lf.shared_members.length > 0) {
-        for (const sid of lf.shared_members) {
-          const sp = posMap.get(sid);
-          if (sp && (sp.x !== 0 || sp.y !== 0)) { dirAngle = Math.atan2(sp.y, sp.x); break; }
-        }
-      }
+      const dirAngle = finalAngles[li];
       const offsetX = Math.cos(dirAngle) * separation;
       const offsetY = Math.sin(dirAngle) * separation;
 
