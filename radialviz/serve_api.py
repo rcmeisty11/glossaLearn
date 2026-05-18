@@ -598,7 +598,8 @@ def get_family(family_id):
 
     members = rows_to_list(db.execute(
         """SELECT l.id, l.lemma, l.pos, l.short_def,
-                  l.total_occurrences, l.frequency_rank, lf.relation
+                  l.total_occurrences, l.frequency_rank,
+                  lf.relation, lf.parent_lemma_id, lf.derivation_type
            FROM lemma_families lf
            JOIN lemmas l ON l.id = lf.lemma_id
            WHERE lf.family_id = ?
@@ -1609,7 +1610,7 @@ def get_linked_families(family_id):
         fam_dict = row_to_dict(fam)
         fam_dict["members"] = rows_to_list(db.execute(
             """SELECT l.id, l.lemma, l.pos, l.short_def,
-                      l.total_occurrences, lf.relation, lf.parent_lemma_id
+                      l.total_occurrences, lf.relation, lf.parent_lemma_id, lf.derivation_type
                FROM lemma_families lf
                JOIN lemmas l ON l.id = lf.lemma_id
                WHERE lf.family_id = ?
