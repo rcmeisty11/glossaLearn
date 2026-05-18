@@ -316,11 +316,13 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
    Selected word highlighted with glow.
    Non-overlapping layout with collision detection.
    ═══════════════════════════════════════════════════ */
-function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, width, height }) {
+function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
   const onSelectRef = useRef(onSelectMember);
   onSelectRef.current = onSelectMember;
+  const onDoubleClickRef = useRef(onDoubleClickMember);
+  onDoubleClickRef.current = onDoubleClickMember;
   const onNodeActionRef = useRef(onNodeAction);
   onNodeActionRef.current = onNodeAction;
 
@@ -554,6 +556,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
 
         // Select the member
         if (d.data.member) onSelectRef.current(d.data.member);
+        if (e.detail >= 2 && d.data.member && onDoubleClickRef.current) onDoubleClickRef.current(d.data.member);
 
         const midAngle = (d.x0 + d.x1) / 2;
         const targetRotation = -(midAngle * 180 / Math.PI) + 90;
@@ -612,7 +615,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
       .text((rootMember.short_def || "").length > 20 ? (rootMember.short_def || "").slice(0, 20) + "…" : (rootMember.short_def || ""));
 
     // Root click
-    rootG.on("click", (e) => { e.stopPropagation(); onSelectRef.current(rootMember); })
+    rootG.on("click", (e) => { e.stopPropagation(); onSelectRef.current(rootMember); if (e.detail >= 2 && onDoubleClickRef.current) onDoubleClickRef.current(rootMember); })
       .on("contextmenu", (e) => {
         e.preventDefault(); e.stopPropagation();
         if (onNodeActionRef.current) onNodeActionRef.current(rootMember, e.clientX, e.clientY);

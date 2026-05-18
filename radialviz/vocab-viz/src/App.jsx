@@ -541,7 +541,7 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
    Selected word highlighted with glow.
    Non-overlapping layout with collision detection.
    ═══════════════════════════════════════════════════ */
-function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAction, onReparent, linkedFamilies, width, height }) {
+function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, onReparent, linkedFamilies, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
   const [expandedCrossIds, setExpandedCrossIds] = useState(new Set()); // member IDs whose linked families are expanded
@@ -739,6 +739,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
             .attr("font-family", T.font).attr("opacity", 0.6).text(m.lemma);
         }
         ng.on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
+          .on("dblclick", (event) => { event.stopPropagation(); if (onDoubleClickMember) onDoubleClickMember(m); })
           .on("contextmenu", (event) => {
             event.preventDefault(); event.stopPropagation();
             if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
@@ -857,6 +858,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
             .attr("stroke-opacity", isRoot ? .7 : .25);
         }
       }).on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
+        .on("dblclick", (event) => { event.stopPropagation(); if (onDoubleClickMember) onDoubleClickMember(m); })
         .on("contextmenu", (event) => {
           event.preventDefault(); event.stopPropagation();
           if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
@@ -1168,7 +1170,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onNodeAc
    Left pane: parent/children/grandchildren tree
    Right pane: linked families for clicked word
    ═══════════════════════════════════════════════════ */
-function FamilyListView({ family, selectedWord, detailWord, onSelectMember, linkedFamilies, width, height }) {
+function FamilyListView({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, linkedFamilies, width, height }) {
   const [selectedLinkedId, setSelectedLinkedId] = useState(null);
 
   if (!family || !family.members || family.members.length === 0) {
@@ -1220,6 +1222,7 @@ function FamilyListView({ family, selectedWord, detailWord, onSelectMember, link
       <div key={m.id}>
         <div
           onClick={() => onSelectMember(m)}
+          onDoubleClick={() => { if (onDoubleClickMember) onDoubleClickMember(m); }}
           onMouseEnter={e => { if (!isDetail) e.currentTarget.style.background = T.hover; }}
           onMouseLeave={e => { if (!isDetail) e.currentTarget.style.background = isDetail ? T.goldGlow : "transparent"; }}
           style={{
@@ -1298,6 +1301,7 @@ function FamilyListView({ family, selectedWord, detailWord, onSelectMember, link
         <div key={m.id}>
           <div
             onClick={() => onSelectMember(m)}
+            onDoubleClick={() => { if (onDoubleClickMember) onDoubleClickMember(m); }}
             onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
             onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
             style={{
@@ -3807,17 +3811,20 @@ export default function App() {
               {vizMode === "sunburst" ? (
                 <FamilyTreeSunburst family={family} selectedWord={selectedWord} detailWord={detailWord}
                   onSelectMember={m => setDetailWord(m)}
+                  onDoubleClickMember={m => { setSelectedWord(m); setDetailWord(m); setRightPinned(true); }}
                   onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                   width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
               ) : vizMode === "list" ? (
                 <FamilyListView family={family} selectedWord={selectedWord} detailWord={detailWord}
                   onSelectMember={m => setDetailWord(m)}
+                  onDoubleClickMember={m => { setSelectedWord(m); setDetailWord(m); setRightPinned(true); }}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                   width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
               ) : (
                 <FamilyTree family={family} selectedWord={selectedWord} detailWord={detailWord}
                   onSelectMember={m => setDetailWord(m)}
+                  onDoubleClickMember={m => { setSelectedWord(m); setDetailWord(m); setRightPinned(true); }}
                   onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
                   onReparent={superuser ? handleReparent : undefined}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
@@ -3851,7 +3858,7 @@ export default function App() {
               return members[0]?.id;
             })()}
             x={nodeAction.x} y={nodeAction.y}
-            onClose={() => setNodeAction(null)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
+            onClose={() => setNodeAction(null)} onDone={bumpFamily} />
         )}
 
         {/* Superuser: Merge Family Modal */}
@@ -3869,7 +3876,7 @@ export default function App() {
         {/* Superuser: Link Family Modal */}
         {showLinkModal && family && (
           <LinkFamilyModal familyId={family.id} familyLabel={family.label}
-            onClose={() => setShowLinkModal(false)} onDone={() => { bumpFamily(); setShowLinked(true); }} />
+            onClose={() => setShowLinkModal(false)} onDone={bumpFamily} />
         )}
 
         {/* Superuser: Edit History Panel */}
