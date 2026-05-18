@@ -32,6 +32,47 @@ const POS_CLR = {
   particle: T.cyan, article: T.dim, "": T.dim,
 };
 
+const DERIVATION_ORDER = [
+  'deverbal_action', 'deverbal_agent', 'deverbal_instrument',
+  'verbal_adj_passive', 'verbal_adj_active',
+  'denominal_verb', 'denominal_adj',
+  'deadjectival_noun', 'deadjectival_verb',
+  'compound_verb', 'compound_noun', 'compound_adj', 'compound_adv',
+];
+
+const DERIVATION_COLORS = {
+  deverbal_action:     '#e8854a',
+  deverbal_agent:      '#d4a84b',
+  deverbal_instrument: '#c9bf52',
+  verbal_adj_passive:  '#5db87a',
+  verbal_adj_active:   '#3da89a',
+  denominal_verb:      '#5598d4',
+  denominal_adj:       '#7478c8',
+  deadjectival_noun:   '#9e6cc8',
+  deadjectival_verb:   '#b85ca8',
+  compound_verb:       '#7a8694',
+  compound_noun:       '#95a0ab',
+  compound_adj:        '#abb4bc',
+  compound_adv:        '#bfc6cc',
+  default:             '#606570',
+};
+
+const DERIVATION_LABELS = {
+  deverbal_action:     'Action Nouns',
+  deverbal_agent:      'Agent Nouns',
+  deverbal_instrument: 'Instrument Nouns',
+  verbal_adj_passive:  'Passive Verbal Adj.',
+  verbal_adj_active:   'Active Verbal Adj.',
+  denominal_verb:      'Denominal Verbs',
+  denominal_adj:       'Denominal Adj.',
+  deadjectival_noun:   'Deadjectival Nouns',
+  deadjectival_verb:   'Deadjectival Verbs',
+  compound_verb:       'Compound Verbs',
+  compound_noun:       'Compound Nouns',
+  compound_adj:        'Compound Adj.',
+  compound_adv:        'Compound Adverbs',
+};
+
 /* ═══════════════════════════════════════════════════
    GLOBAL LOADING BAR
    Thin animated gold bar at top of viewport.
@@ -645,6 +686,10 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
 
     const focusDescendants = focusId ? getDescendants(focusId) : new Set();
 
+    // ── Sort ring-1 by derivation type for predictable layout ──
+    const dtRank = dt => { const i = DERIVATION_ORDER.indexOf(dt); return i >= 0 ? i : DERIVATION_ORDER.length; };
+    ring1.sort((a, b) => dtRank(a.derivation_type) - dtRank(b.derivation_type) || (b.total_occurrences || 0) - (a.total_occurrences || 0));
+
     // ── Ring 1: direct children of root ──
     const ring1Radius = Math.max(ring1.length * (nW * 0.3 + gap) / (2 * Math.PI), 170);
 
@@ -653,6 +698,18 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     ring1.forEach((m, i) => {
       ring1Angles.set(m.id, (i / ring1.length) * 2 * Math.PI - Math.PI / 2);
     });
+
+    // ── Compute contiguous derivation type sectors ──
+    const slotAngle = ring1.length > 0 ? (2 * Math.PI) / ring1.length : 0;
+    const sectors = [];
+    let si = 0;
+    while (si < ring1.length) {
+      const dt = ring1[si].derivation_type || null;
+      let ei = si;
+      while (ei < ring1.length && (ring1[ei].derivation_type || null) === dt) ei++;
+      sectors.push({ dt, startIdx: si, endIdx: ei - 1 });
+      si = ei;
+    }
 
     // ── Position map ──
     const posMap = new Map();
@@ -766,6 +823,16 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         .attr("stroke-width", isSel ? 2 : (isRoot ? 1.5 : .8))
         .attr("stroke-opacity", isSel ? 1 : (isRoot ? .7 : .25));
 
+      // Derivation type color strip on left edge
+      if (!isRoot && m.derivation_type) {
+        const dtClr = DERIVATION_COLORS[m.derivation_type] || DERIVATION_COLORS.default;
+        ng.append("rect")
+          .attr("x", -w / 2).attr("y", -h / 2 + 4 * scale)
+          .attr("width", 3 * scale).attr("height", h - 8 * scale)
+          .attr("rx", 1.5 * scale)
+          .attr("fill", dtClr).attr("opacity", 0.9);
+      }
+
       if (isRoot) {
         ng.append("text").attr("text-anchor", "middle").attr("y", -h / 2 - 4 * scale)
           .attr("fill", T.goldDim).attr("font-size", `${10 * scale}px`).attr("font-family", T.mono)
@@ -829,7 +896,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       }
 
       // Root badge for explicit linked families
-      if (isRoot && (linkedFamilies || []).some(lf => !lf.shared_members || lf.shared_members.length === 0)) {
+      if (isRoot && (linkedFamilies || []).some(lf => lf.link_type !== 'shared word')) {
         const badge = ng.append("g").style("cursor", "pointer");
         badge.append("circle").attr("cx", -w / 2 - 2).attr("cy", -h / 2 - 2)
           .attr("r", 8).attr("fill", showExplicitLinked ? T.gold : T.blue).attr("opacity", 0.9);
@@ -864,6 +931,54 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
           if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
         });
     };
+
+    // ── Draw derivation type sector arcs ──
+    if (ring1.length > 0) {
+      const sInnerR = ring1Radius - 60;
+      const sOuterR = ring1Radius + 60;
+      const sLabelR = ring1Radius + 82;
+      const sectorLayer = g.append("g").attr("class", "sectors");
+
+      sectors.forEach(({ dt, startIdx, endIdx }) => {
+        if (!dt) return;
+        const color = DERIVATION_COLORS[dt] || DERIVATION_COLORS.default;
+        const label = DERIVATION_LABELS[dt] || dt;
+        const startAngle = ring1Angles.get(ring1[startIdx].id) - slotAngle * 0.5;
+        const endAngle   = ring1Angles.get(ring1[endIdx].id)   + slotAngle * 0.5;
+        const span       = endAngle - startAngle;
+        const midAngle   = (startAngle + endAngle) / 2;
+        const largeArc   = span > Math.PI ? 1 : 0;
+
+        const x1i = Math.cos(startAngle) * sInnerR, y1i = Math.sin(startAngle) * sInnerR;
+        const x2i = Math.cos(endAngle)   * sInnerR, y2i = Math.sin(endAngle)   * sInnerR;
+        const x1o = Math.cos(startAngle) * sOuterR, y1o = Math.sin(startAngle) * sOuterR;
+        const x2o = Math.cos(endAngle)   * sOuterR, y2o = Math.sin(endAngle)   * sOuterR;
+
+        sectorLayer.append("path")
+          .attr("d", `M ${x1i},${y1i} A ${sInnerR},${sInnerR} 0 ${largeArc} 1 ${x2i},${y2i} L ${x2o},${y2o} A ${sOuterR},${sOuterR} 0 ${largeArc} 0 ${x1o},${y1o} Z`)
+          .attr("fill", color).attr("fill-opacity", 0.07)
+          .attr("stroke", color).attr("stroke-opacity", 0.25)
+          .attr("stroke-width", 1);
+
+        if (span > 0.18) {
+          const lx = Math.cos(midAngle) * sLabelR;
+          const ly = Math.sin(midAngle) * sLabelR;
+          const rot = midAngle * 180 / Math.PI + 90;
+          const flip = midAngle > 0 && midAngle < Math.PI;
+          sectorLayer.append("text")
+            .attr("x", lx).attr("y", ly)
+            .attr("transform", `rotate(${flip ? rot + 180 : rot}, ${lx}, ${ly})`)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "middle")
+            .attr("fill", color)
+            .attr("font-size", "9.5px")
+            .attr("font-family", T.mono)
+            .attr("opacity", 0.85)
+            .attr("letter-spacing", "0.8px")
+            .text(label.toUpperCase());
+        }
+      });
+    }
 
     // ── Draw connections ──
     others.forEach(m => {
@@ -917,12 +1032,10 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     // ── Render linked families (only when badge is clicked) ──
     const linkedOffsets = []; // track bounding for auto-fit
     const activeLinked = (linkedFamilies || []).filter(lf => {
-      // Shared-member families: show if any shared member's badge is expanded
-      if (lf.shared_members && lf.shared_members.length > 0) {
-        return lf.shared_members.some(sid => expandedCrossIds.has(sid));
-      }
-      // Explicit linked families: show via root badge
-      return showExplicitLinked;
+      // Explicit family_links (related, sub-family, etc.) — show via root badge
+      if (lf.link_type !== 'shared word') return showExplicitLinked;
+      // Shared-member-only families: show if any shared member's badge is expanded
+      return lf.shared_members && lf.shared_members.some(sid => expandedCrossIds.has(sid));
     });
     if (activeLinked.length > 0) {
       // Compute main family's max extent from center
@@ -932,9 +1045,37 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         if (dist > mainMaxR) mainMaxR = dist;
       });
 
-      activeLinked.forEach((lf, li) => {
-        if (!lf.members || lf.members.length === 0) return;
+      // Pre-compute preferred placement angles and enforce minimum separation
+      const linkedValid = activeLinked.filter(lf => lf.members && lf.members.length > 0);
+      const prefAngles = linkedValid.map((lf, li) => {
+        let angle = (li / linkedValid.length) * 2 * Math.PI - Math.PI / 2; // even default
+        if (lf.shared_members && lf.shared_members.length > 0) {
+          for (const sid of lf.shared_members) {
+            const sp = posMap.get(sid);
+            if (sp && (sp.x !== 0 || sp.y !== 0)) { angle = Math.atan2(sp.y, sp.x); break; }
+          }
+        }
+        return angle;
+      });
+      // Enforce minimum angular gap between families
+      const minGap = linkedValid.length > 0 ? Math.max((2 * Math.PI) / linkedValid.length, Math.PI / 4) : Math.PI / 4;
+      const sorted = prefAngles.map((a, i) => ({ i, a })).sort((x, y) => x.a - y.a);
+      for (let pass = 0; pass < 8; pass++) {
+        for (let k = 0; k < sorted.length; k++) {
+          const next = sorted[(k + 1) % sorted.length];
+          let diff = next.a - sorted[k].a;
+          if (k === sorted.length - 1) diff += 2 * Math.PI;
+          if (diff < minGap) {
+            const push = (minGap - diff) / 2;
+            sorted[k].a -= push;
+            next.a += push;
+          }
+        }
+      }
+      const finalAngles = new Array(linkedValid.length);
+      sorted.forEach(({ i, a }) => { finalAngles[i] = a; });
 
+      linkedValid.forEach((lf, li) => {
         // Build linked family tree first so we know its size
         const lMembers = [...lf.members];
         let lRootIdx = lMembers.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...lMembers.filter(x => x.relation === "root").map(x => x.total_occurrences)));
@@ -953,20 +1094,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         const lRing1 = lChildrenOf.get(lRoot.id) || [];
         const lRing1Radius = Math.max(lRing1.length * (nW * 0.3 + gap * 0.6) / (2 * Math.PI), 130);
 
-        // Place linked family in the direction of the shared member relative to center
         const linkedR = lRing1Radius + nW + 60;
         const separation = mainMaxR + linkedR + 100;
-        // Find the shared member's position to determine direction
-        let dirAngle = li * (Math.PI * 0.4) - ((activeLinked.length - 1) * Math.PI * 0.2); // fallback spread
-        if (lf.shared_members && lf.shared_members.length > 0) {
-          for (const sid of lf.shared_members) {
-            const sp = posMap.get(sid);
-            if (sp && (sp.x !== 0 || sp.y !== 0)) {
-              dirAngle = Math.atan2(sp.y, sp.x);
-              break;
-            }
-          }
-        }
+        const dirAngle = finalAngles[li];
         const offsetX = Math.cos(dirAngle) * separation;
         const offsetY = Math.sin(dirAngle) * separation;
 
