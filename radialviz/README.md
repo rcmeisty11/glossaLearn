@@ -459,14 +459,7 @@ GlossLearn will soon have an LTI integration (tested with Canvas)
 
 Canvas can be exceptionally difficult to run
 
-[Here](https://gist.github.com/jonloureiro/3a1e1a5c49d4ac3a5805d37c247f0ab5) is the best guide to doing so. I recommend initializing a t3.large tier Amazon EC2 Ubuntu instance (~$1/day). Check out to the latest commit. You should also add in the example dynamic_settings in `config-override` and then map this file in the docker compose override file. Your deployment URL (for the `.env.canvas` and `Caddyfile`) will be the same dns name as your EC2 instance. If you want this to run at some URL, setup a static IPV4/6 for your EC2 instance and add A/AAAA records to your dns server. Note: You will need to do this if you wish to avoid updating these 2 files everytime you start and stop your EC2 instance.
-
-[to install docker](https://docs.docker.com/engine/install/ubuntu/#installation-methods)
-`sudo apt install nodejs`
-[to fix docker sock issues](https://stackoverflow.com/questions/48957195/how-to-fix-docker-permission-denied)
-Make sure to checkout to master in both the docker quickstart and embedded canvas-lms repo. Otherwise you will get obscure Ruby/Yarn errors when building.
-
-TODO: Since the gist does not work in its current state, another should be made. Though, everything can just be tossed into another script to automate the full thing (and this should be constantly maintained for the Canvas developer community)
+[Here](https://gist.github.com/jonloureiro/3a1e1a5c49d4ac3a5805d37c247f0ab5) is the best guide to doing so. I recommend initializing a t2.medium tier Amazon EC2 Ubuntu instance. Check out to the latest commit. You should also add in the example dynamic_settings in `config-override` and then map this file in the docker compose override file. Your deployment URL (for the `.env.canvas` and `Caddyfile`) will be the same dns name as your EC2 instance. If you want this to run at some URL, setup a static IPV4/6 for your EC2 instance and add A/AAAA records to your dns server. Note: You will need to do this if you wish to avoid updating these 2 files everytime you start and stop your EC2 instance.
 
 You will need to create a user and make them an admin. Often you will need to run commands in the Ruby shell.
 
@@ -476,18 +469,23 @@ In the Ruby shell, run:
 
 ```ruby
 user = User.create!(
-  name: "Test Student",
-  short_name: "Test Student",
-  sortable_name: "Student, Test"
+  name: "Your Name",
+  short_name: "Your Name",
+  sortable_name: "Name, Your"
 )
 
 Pseudonym.create!(
   user: user,
   account: Account.default,
-  unique_id: "teststudent@example.com",
+  unique_id: "you@example.com",
   password: "password123",
   password_confirmation: "password123"
 )
+```
+```
+Account.site_admin.account_users.where(user_id: user,
+  role_id: Role.get_built_in_role("AccountAdmin", root_account_id: Account.site_admin.id)
+).first_or_create!
 ```
 
 Now you can login to Canvas with an Admin user and add LTI apps.
@@ -571,7 +569,9 @@ TOOL_URL will be either the production tool deployment or the Tailscale serve de
 
 ### Next steps for LTI
 
-We based our implementation off of: https://github.com/dmitry-viskov/pylti1.3-flask-example
+We don't currently have the LTI integration ready
+
+We based our bare-bones implementation off of: https://github.com/dmitry-viskov/pylti1.3-flask-example
 
 Which depends on [this](https://github.com/dmitry-viskov/pylti1.3) old Python LTI 1.3 implementation, which has since been forked by the community [here](https://github.com/pymsglobal/pylti1p3next).
 
@@ -588,43 +588,19 @@ When you use that starter, add the following to `configs/game.json`:
         "key_set": null,
         "private_key_file": "private.key",
         "public_key_file": "public.key",
-        "deployment_ids": ["DEPID FROM CANVAS"]
+        "deployment_ids": ["depid"]
     }]
 ```
 
-Once automated registration is implemented, the above process will be 
-
 Update depid once you add LTI key.
 
-Add test canvas user created above via "people" on your course.
+Add test canvas user to your course however you see fit.
 
 This starter should work and it does everything that is needed for the GlossaLearn LTI integration.
-
-  4 undefined method 'sign' for nil (via /error_reports/id) 
-
- means you need to add dynamic settings.yml: https://github.com/instructure/canvas-lms/issues/1981
 
 Reach out to GLEngineer if you have any error codes or need help debugging
 
 The next steps are to get a basic in-memory demo of our 3 assignments, get this working outside ephemeral caches and get this to work for general deployments/enable users to easily add our app to their Canvas instance.
-
-#### workarounds
-
-##### automated registration
-
-[automated registration](https://developerdocs.instructure.com/services/canvas/external-tools/lti/file.registration) is not implemented just yet.
-
-for now, to add this to a course:
-
-- add LTI key as admin (from paste above)
-- enable LTI key
-- add tool to course
-- get deployment id from that and add the config to the tool side
-
-once automated registration is done, all of the above should be automated
-
-##### TODO
-
 
 ### Specification
 
@@ -652,7 +628,7 @@ enums:
 
 relationships: 
 
-- course (deployment id)
+- course (deployment id, section id, class instance id) (need to research how to disambiguate courses/other, pk all but instance_id)
 - assignment (course, assignment_id, assignment_enum, assignment_submission_id) (pk same as row - assignment enum, assignment_submission_id)
 - assignment score (course, assignment_id, student_id, assignment_score) (pk (course, assignment_id, student_id))
 - assignment_submission (course_id, assignment_id, assignment_submission_id, assignment_artifact) (artifact link to audio or raw translation/perception text)
