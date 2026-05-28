@@ -1,17 +1,19 @@
-FROM python:3.11-slim
+FROM python:3.10.7-alpine3.16
 
 WORKDIR /app
 
-# Install Python dependencies
-RUN pip install --no-cache-dir flask flask-cors gunicorn
+RUN apk add --update \
+    build-base libffi-dev openssl-dev ffmpeg \
+    xmlsec xmlsec-dev libpq-dev \
+  && rm -rf /var/cache/apk/*
 
-# Copy the API server
-COPY serve_api.py .
+ADD requirements.txt /tmp
+RUN pip install --upgrade pip
+RUN pip install -r /tmp/requirements.txt
+# feels hacky
 
-# Database lives on persistent Fly.io volume at /data
 ENV DB_PATH=/data/greek_vocab.db
 
 EXPOSE 8080
 
-# Run with gunicorn for production (4 workers, read-only DB is safe for concurrency)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "--graceful-timeout", "3", "serve_api:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--log-level", "info", "--workers", "2", "--timeout", "120", "--graceful-timeout", "3", "serve_api:app"]

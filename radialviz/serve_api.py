@@ -37,11 +37,16 @@ from flask_cors import CORS
 from pydub import AudioSegment
 from io import BytesIO
 import base64
+from tempfile import mkdtemp
 
 from flask import Flask, request, jsonify, send_file, g
+from flask_caching import Cache
 
 from collections import defaultdict
 import random
+
+from lti.lti import lti_bp, interactive_bp, app
+
 
 try:
     from openai import OpenAI
@@ -76,8 +81,9 @@ DB_PATH = Path(os.environ.get("DB_PATH", "./greek_vocab.db"))
 if not DB_PATH.exists():
     print(f"WARNING: {DB_PATH} not found. API will return 503 until database is available.")
 
-app = Flask(__name__)
-CORS(app)  # Allow cross-origin requests from the frontend
+app.register_blueprint(lti_bp, url_prefix="/")
+app.register_blueprint(interactive_bp, url_prefix="/api")
+CORS(app, supports_credentials=True)
 
 # Superuser mode: enables write endpoints for manual family editing
 SUPERUSER_MODE = os.environ.get("GLOSSALEARN_SUPERUSER", "0") == "1"
@@ -504,6 +510,41 @@ def get_lemma_by_name(lemma_text):
     # Redirect to the full lemma endpoint
     return get_lemma(row["id"])
 
+
+@app.route("/api/sentences")
+def get_work_sentences():
+    db = get_db()
+    work_id = request.args.get("work_id", type=int)
+
+    # Check if sentences table exists
+    table_check = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sentences'"
+    ).fetchone()
+    if not table_check:
+        return jsonify({"sentences": [], "note": "Sentences table not yet built"})
+
+    rows = db.execute("""
+        SELECT s.id, s.passage, s.sentence_text, w.title, w.author, w.id as work_id
+        FROM sentence_lemmas sl
+        JOIN sentences s ON s.id = sl.sentence_id
+        JOIN works w ON w.id = s.work_id
+        WHERE s.work_id = ?
+        ORDER BY s.sentence_pos
+    """, (work_id,)).fetchall()
+
+    sentences = []
+    for r in rows:
+        sentences.append({
+            "id": r["id"],
+            "passage": r["passage"],
+            "text": r["sentence_text"],
+            "work_title": r["title"],
+            "work_author": r["author"],
+            "work_id": r["work_id"],
+        })
+
+    result = {"sentences": sentences}
+    return jsonify(result)
 
 # ─────────────────────────────────────────────
 # GET /api/lemma/<lemma_id>/sentences

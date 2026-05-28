@@ -1,0 +1,38 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:17
+    container_name: lti-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app_db
+    networks:
+      - glossalearn-network
+    volumes:
+      - lti_postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    container_name: backend
+    restart: always
+    stdin_open: true
+    tty: true
+    volumes:
+    # kinda hacky to get greek db/lti structure with quick reloads (we still have hot reloads if you run outside docker)
+      - .:/data
+      - .:/app
+    working_dir: /app
+    ports:
+      - "8080:8080"
+    networks:
+      - glossalearn-network
+
+volumes:
+  lti_postgres_data:
+
+networks:
+  glossalearn-network:
