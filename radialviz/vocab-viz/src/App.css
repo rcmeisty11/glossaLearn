@@ -1,34 +1,44 @@
-.glossalearn-input {
-  background: #1a1815;
-  color: #c8bfa8;
-  border: 1px solid #302c25;
-  border-radius: 4;
-  padding: 4px 10px;
-  font-size: 14;
-  font-family: 'EB Garamond', Georgia, serif;
-  outline: none;
+#root {
+  width: 100%;
+  height: 100vh;
 }
 
-.glossalearn-button {
-  background: transparent;
-  color: #8a7f6e;
-  border: 1px solid #3d372e;
-  border-radius: 3;
-  padding: 1px 8px;
-  font-size: 11;
-  font-weight: 600;
-  cursor: pointer;
-
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
 }
 
-.glossalearn-button-selected {
-  background: #efe6d0;
-  color: #0e0d0b;
-  border: 1px solid #efe6d0;
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.glossalearn-lti-container {
-    overflow: scroll;
-    height: 70%;
-    border: 1px solid #000;
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+.hover-color:hover {
+  background-color: rgb(45, 45, 45);
 }
