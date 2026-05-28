@@ -4,14 +4,20 @@ import FamilyTreeSunburst from "./FamilyTreeSunburst.jsx";
 import './App.css';
 
 
-
 import Flashcard from './components/flashcard';
 import Perception from './components/perception';
 import { ReactMediaRecorder } from "react-media-recorder";
+import TeacherAssign from "./views/TeacherAssign.jsx";
+import TeacherGrade from "./views/TeacherGrade.jsx";
+import StudentAnswer from "./views/StudentAnswer.jsx";
+
+import { getFieldsFromUrl } from "./lti/lti.js";
+
+
 
 const ELIDE_SPEECH_TRAINING = import.meta.env.SKIP_SPEECH;
 
-const BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:5000";
+const BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:8080";
 const API = BASE + "/api";
 
 const T = {
@@ -3390,6 +3396,9 @@ function ProductionTraining({ language, toPronounce }) {
   )
 }
 
+  const STUDENT_ANSWER = 'Student Answer';
+  const TEACHER_ASSIGN = 'Teacher Assign';
+  const TEACHER_GRADE = 'Teacher Grade';
 /* ═══════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════ */
@@ -3476,7 +3485,13 @@ export default function App() {
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
   const [headerExpanded, setHeaderExpanded] = useState(false);
+  const {is_lti_context, is_student} = getFieldsFromUrl();
   let views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
+  if (is_lti_context && is_student) {
+    views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception', STUDENT_ANSWER];
+  } else if (is_lti_context && !is_student) {
+    views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception', TEACHER_ASSIGN, TEACHER_GRADE];
+  }
   if (ELIDE_SPEECH_TRAINING) {
     views = ['Vocabulary Explorer'];
   }
@@ -3737,10 +3752,9 @@ export default function App() {
             onFocus={() => { if (headerResults.length > 0) setHeaderDropdownOpen(true); }}
             placeholder="Look up a Greek word..."
             style={{
-              background: T.surface, color: T.text, border: `1px solid ${T.border}`,
-              borderRadius: 4, padding: "4px 10px", fontSize: T.sm, fontFamily: T.font,
-              width: 220, outline: "none",
+              width: 220
             }}
+            className="glossalearn-input"
             onKeyDown={e => {
               if (e.key === "Enter" && headerResults.length > 0) selectHeaderResult(headerResults[0]);
               if (e.key === "Escape") setHeaderDropdownOpen(false);
@@ -3797,7 +3811,7 @@ export default function App() {
       {tourStep >= 0 && (
         <GuidedTour step={tourStep} onNext={nextTourStep} onBack={prevTourStep} onClose={closeTour} />
       )}
-
+      <div style={{padding: '10px'}}>
       {/* Main layout */}
       {currentView === 0 && <>
 
@@ -3927,12 +3941,9 @@ export default function App() {
               )}
               <div data-tour="tour-views"><span style={{ fontSize: 11, color: T.dim }}>View:</span>
                 {["tree", "sunburst", "list"].map(m => (
-                  <button key={m} onClick={() => setVizMode(m)} style={{
-                    background: vizMode === m ? T.bright : "transparent",
-                    color: vizMode === m ? T.bg : T.dim,
-                    border: `1px solid ${vizMode === m ? T.bright : T.borderL}`,
-                    borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                  }}>{m === "tree" ? "Tree" : m === "sunburst" ? "Sunburst" : "List"}</button>
+                  <button key={m} onClick={() => setVizMode(m)} 
+                  className={m === vizMode? 'glossalearn-button-selected glossalearn-button' : 'glossalearn-button'}
+                  >{m === "tree" ? "Tree" : m === "sunburst" ? "Sunburst" : "List"}</button>
                 ))}</div>
 
             </div>
@@ -4044,5 +4055,11 @@ export default function App() {
         </div>
       </>}
 
+      <div className='glossalearn-lti-container'>
+        {views[currentView] === STUDENT_ANSWER && <StudentAnswer />}
+      {views[currentView] === TEACHER_ASSIGN && <TeacherAssign />}
+      {views[currentView] === TEACHER_GRADE && <TeacherGrade />}
+      </div>
+          </div>
     </div>)
 }
