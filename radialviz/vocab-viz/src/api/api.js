@@ -1,6 +1,7 @@
 import { getFieldsFromUrl } from "../lti/lti";
 
-const API_BASE = "http://localhost:8080/api";
+const API_BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com/api" : "http://127.0.0.1:8080/api";
+const TEXT_API_BASE = import.meta.env.PROD ? "https://apiaws.glossalearn.com" : "http://127.0.0.1:8080";
 const LAUNCH_API_TOFILL = "LAUNCH_ID_TOFILL";
 
 const fetchRetry = async (url, obj) => {
@@ -59,7 +60,6 @@ export const createSubmission = (payload) => glossaFetch(`${API_BASE}/submission
 export const submitSubmission = (payload) => glossaFetch(`${API_BASE}/submission/${LAUNCH_API_TOFILL}/submit`, preparePost(payload));
 export const gradeSubmission = (payload) => glossaFetch(`${API_BASE}/submission/${LAUNCH_API_TOFILL}/grade`, preparePost(payload));
 
-const TEXT_API_BASE = "http://localhost:8080";
 
 export const getWorks = (author) => glossaFetch(`${TEXT_API_BASE}/api/works?author=${author}`);
 
