@@ -28,8 +28,20 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@lti-postgres:5432/app_db"
 )
 
+DEPLOYMENT_URL = os.getenv(
+    "DEPLOYMENT_URL",
+    "http://localhost:5173"
+)
+
 def get_connection():
-    return psycopg.connect(DATABASE_URL)
+    conn = None
+    try:
+        conn = psycopg.connect(DATABASE_URL)
+    except Exception as e:
+        print(f"Failed to connect to db at {DATABASE_URL}")
+        abort(500)
+    return conn
+        
 
 # MONKEYPATCH: for some reason we are getting http:// links for lineitems, seemingly not affecting other services
 _original_init = AssignmentsGradesService.__init__
@@ -128,7 +140,7 @@ def launch():
     
     current_user = get_user(message_launch)
     is_student = str(eval_is_student(current_user))
-    return redirect(f'http://localhost:5173/?is_student={is_student}&launch_id={message_launch.get_launch_id()}')
+    return redirect(f'{DEPLOYMENT_URL}/?is_student={is_student}&launch_id={message_launch.get_launch_id()}')
 
 
 @lti_bp.get('/jwks/')
