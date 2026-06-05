@@ -47,36 +47,36 @@ const DERIVATION_ORDER = [
 ];
 
 const DERIVATION_COLORS = {
-  deverbal_action:     '#e8854a',
-  deverbal_agent:      '#d4a84b',
+  deverbal_action: '#e8854a',
+  deverbal_agent: '#d4a84b',
   deverbal_instrument: '#c9bf52',
-  verbal_adj_passive:  '#5db87a',
-  verbal_adj_active:   '#3da89a',
-  denominal_verb:      '#5598d4',
-  denominal_adj:       '#7478c8',
-  deadjectival_noun:   '#9e6cc8',
-  deadjectival_verb:   '#b85ca8',
-  compound_verb:       '#7a8694',
-  compound_noun:       '#95a0ab',
-  compound_adj:        '#abb4bc',
-  compound_adv:        '#bfc6cc',
-  default:             '#606570',
+  verbal_adj_passive: '#5db87a',
+  verbal_adj_active: '#3da89a',
+  denominal_verb: '#5598d4',
+  denominal_adj: '#7478c8',
+  deadjectival_noun: '#9e6cc8',
+  deadjectival_verb: '#b85ca8',
+  compound_verb: '#7a8694',
+  compound_noun: '#95a0ab',
+  compound_adj: '#abb4bc',
+  compound_adv: '#bfc6cc',
+  default: '#606570',
 };
 
 const DERIVATION_LABELS = {
-  deverbal_action:     'Action Nouns',
-  deverbal_agent:      'Agent Nouns',
+  deverbal_action: 'Action Nouns',
+  deverbal_agent: 'Agent Nouns',
   deverbal_instrument: 'Instrument Nouns',
-  verbal_adj_passive:  'Passive Verbal Adj.',
-  verbal_adj_active:   'Active Verbal Adj.',
-  denominal_verb:      'Denominal Verbs',
-  denominal_adj:       'Denominal Adj.',
-  deadjectival_noun:   'Deadjectival Nouns',
-  deadjectival_verb:   'Deadjectival Verbs',
-  compound_verb:       'Compound Verbs',
-  compound_noun:       'Compound Nouns',
-  compound_adj:        'Compound Adj.',
-  compound_adv:        'Compound Adverbs',
+  verbal_adj_passive: 'Passive Verbal Adj.',
+  verbal_adj_active: 'Active Verbal Adj.',
+  denominal_verb: 'Denominal Verbs',
+  denominal_adj: 'Denominal Adj.',
+  deadjectival_noun: 'Deadjectival Nouns',
+  deadjectival_verb: 'Deadjectival Verbs',
+  compound_verb: 'Compound Verbs',
+  compound_noun: 'Compound Nouns',
+  compound_adj: 'Compound Adj.',
+  compound_adv: 'Compound Adverbs',
 };
 
 /* ═══════════════════════════════════════════════════
@@ -950,15 +950,15 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         const color = DERIVATION_COLORS[dt] || DERIVATION_COLORS.default;
         const label = DERIVATION_LABELS[dt] || dt;
         const startAngle = ring1Angles.get(ring1[startIdx].id) - slotAngle * 0.5;
-        const endAngle   = ring1Angles.get(ring1[endIdx].id)   + slotAngle * 0.5;
-        const span       = endAngle - startAngle;
-        const midAngle   = (startAngle + endAngle) / 2;
-        const largeArc   = span > Math.PI ? 1 : 0;
+        const endAngle = ring1Angles.get(ring1[endIdx].id) + slotAngle * 0.5;
+        const span = endAngle - startAngle;
+        const midAngle = (startAngle + endAngle) / 2;
+        const largeArc = span > Math.PI ? 1 : 0;
 
         const x1i = Math.cos(startAngle) * sInnerR, y1i = Math.sin(startAngle) * sInnerR;
-        const x2i = Math.cos(endAngle)   * sInnerR, y2i = Math.sin(endAngle)   * sInnerR;
+        const x2i = Math.cos(endAngle) * sInnerR, y2i = Math.sin(endAngle) * sInnerR;
         const x1o = Math.cos(startAngle) * sOuterR, y1o = Math.sin(startAngle) * sOuterR;
-        const x2o = Math.cos(endAngle)   * sOuterR, y2o = Math.sin(endAngle)   * sOuterR;
+        const x2o = Math.cos(endAngle) * sOuterR, y2o = Math.sin(endAngle) * sOuterR;
 
         sectorLayer.append("path")
           .attr("d", `M ${x1i},${y1i} A ${sInnerR},${sInnerR} 0 ${largeArc} 1 ${x2i},${y2i} L ${x2o},${y2o} A ${sOuterR},${sOuterR} 0 ${largeArc} 0 ${x1o},${y1o} Z`)
@@ -3396,9 +3396,9 @@ function ProductionTraining({ language, toPronounce }) {
   )
 }
 
-  const STUDENT_ANSWER = 'Student Answer';
-  const TEACHER_ASSIGN = 'Teacher Assign';
-  const TEACHER_GRADE = 'Teacher Grade';
+const STUDENT_ANSWER = 'Student Answer';
+const TEACHER_ASSIGN = 'Teacher Assign';
+const TEACHER_GRADE = 'Teacher Grade';
 /* ═══════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════ */
@@ -3454,7 +3454,7 @@ export default function App() {
           setRightPinned(true);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Debounced search
@@ -3485,7 +3485,7 @@ export default function App() {
   const centerRef = useRef(null);
   const [centerDims, setCenterDims] = useState({ w: 600, h: 500 });
   const [headerExpanded, setHeaderExpanded] = useState(false);
-  const {is_lti_context, is_student} = getFieldsFromUrl();
+  const { is_lti_context, is_student } = getFieldsFromUrl();
   let views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception'];
   if (is_lti_context && is_student) {
     views = ['Vocabulary Explorer', 'Speech Production', 'Speech Perception', STUDENT_ANSWER];
@@ -3792,16 +3792,20 @@ export default function App() {
           </span>
         )}
         <button onClick={() => setTourStep(0)}
-          style={{ fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
+          style={{
+            fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
             fontFamily: T.mono, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
-            border: `1px solid ${T.border}`, background: "transparent", transition: "color 0.2s, border-color 0.2s" }}
+            border: `1px solid ${T.border}`, background: "transparent", transition: "color 0.2s, border-color 0.2s"
+          }}
           onMouseEnter={e => { e.currentTarget.style.color = T.gold; e.currentTarget.style.borderColor = T.goldDim; }}
           onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
         >TOUR</button>
         <a href="/about.html"
-          style={{ fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
+          style={{
+            fontSize: 11, letterSpacing: 1.5, color: T.dim, cursor: "pointer",
             fontFamily: T.mono, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
-            border: `1px solid ${T.border}`, textDecoration: "none", transition: "color 0.2s, border-color 0.2s" }}
+            border: `1px solid ${T.border}`, textDecoration: "none", transition: "color 0.2s, border-color 0.2s"
+          }}
           onMouseEnter={e => { e.currentTarget.style.color = T.gold; e.currentTarget.style.borderColor = T.goldDim; }}
           onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
         >ABOUT</a>
@@ -3811,7 +3815,6 @@ export default function App() {
       {tourStep >= 0 && (
         <GuidedTour step={tourStep} onNext={nextTourStep} onBack={prevTourStep} onClose={closeTour} />
       )}
-      <div style={{padding: '10px'}}>
       {/* Main layout */}
       {currentView === 0 && <>
 
@@ -3941,8 +3944,8 @@ export default function App() {
               )}
               <div data-tour="tour-views"><span style={{ fontSize: 11, color: T.dim }}>View:</span>
                 {["tree", "sunburst", "list"].map(m => (
-                  <button key={m} onClick={() => setVizMode(m)} 
-                  className={m === vizMode? 'glossalearn-button-selected glossalearn-button' : 'glossalearn-button'}
+                  <button key={m} onClick={() => setVizMode(m)}
+                    className={m === vizMode ? 'glossalearn-button-selected glossalearn-button' : 'glossalearn-button'}
                   >{m === "tree" ? "Tree" : m === "sunburst" ? "Sunburst" : "List"}</button>
                 ))}</div>
 
@@ -4054,12 +4057,10 @@ export default function App() {
           <Perception audioUrl={audioUrl} videoRef={videoRef} transcription={transcription} />
         </div>
       </>}
-
       <div className='glossalearn-lti-container'>
         {views[currentView] === STUDENT_ANSWER && <StudentAnswer />}
-      {views[currentView] === TEACHER_ASSIGN && <TeacherAssign />}
-      {views[currentView] === TEACHER_GRADE && <TeacherGrade />}
+        {views[currentView] === TEACHER_ASSIGN && <TeacherAssign />}
+        {views[currentView] === TEACHER_GRADE && <TeacherGrade />}
       </div>
-          </div>
     </div>)
 }
