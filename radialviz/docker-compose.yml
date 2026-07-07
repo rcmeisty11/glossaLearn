@@ -21,6 +21,8 @@ services:
     restart: always
     stdin_open: true
     tty: true
+    environment:
+      TOOL_URL: nixos.tail3db608.ts.net
     volumes:
     # kinda hacky to get greek db/lti structure with quick reloads (we still have hot reloads if you run outside docker)
       - .:/data

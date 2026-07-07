@@ -515,7 +515,11 @@ Find the deployment url, for prod, this is `https://apiaws.glosslearn.com/regist
 
 For tailscale, this is `YOUR_TAILSCALE_URL/register/`
 
+Once created, refresh page, click "on" (YES ITS A BUTTON, canvas has terrible UX), copy "client_id" (big long number like `10000000000019`)
+
 We only support this automatic flow for adding LTI keys
+
+Then go into your course, into course settings, "Apps", then add an app via "client_id"
 
 
 ### old info
@@ -533,3 +537,4 @@ We forked the old start and switched to the new version without any problems.
  means you need to add dynamic settings.yml: https://github.com/instructure/canvas-lms/issues/1981
 
 Reach out to GLEngineer if you have any error codes or need help debugging
+

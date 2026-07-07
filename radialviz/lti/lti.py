@@ -25,6 +25,9 @@ from flask import abort
 
 from pylti1p3.assignments_grades import AssignmentsGradesService
 
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@lti-postgres:5432/app_db"
@@ -53,105 +56,51 @@ def patched_init(self, service_connector, service_data):
 
 AssignmentsGradesService.__init__ = patched_init
 
-TOOL_CONFIG_MANUAL = {
-    "https://glossalearn.link": [{
-        
-        "client_id": "10000000000005",
-
-        "auth_login_url": "https://glossalearn.link/api/lti/authorize_redirect",
-        "auth_token_url": "https://glossalearn.link/login/oauth2/token",
-        "key_set_url": "https://glossalearn.link/api/lti/security/jwks",
-        
-        "default": False,
-        "key_set": None,
-        "private_key_file": "private.key",
-        "public_key_file": "public.key",
-    }]
-}
-
-PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAuvEnCaUOy1l9gk3wjW3P
-ib1dBc5g92+6rhvZZOsN1a77fdOqKsrjWG1lDu8kq2nL+wbAzR3DdEPVw/1WUwtr
-/Q1d5m+7S4ciXT63pENs1EPwWmeN33O0zkGx8I7vdiOTSVoywEyUZe6UyS+ujLfs
-Rc2ImeLP5OHxpE1yULEDSiMLtSvgzEaMvf2AkVq5EL5nLYDWXZWXUnpiT/f7iK47
-Mp2iQd4KYYG7YZ7lMMPCMBuhej7SOtZQ2FwaBjvZiXDZ172sQYBCiBAmOR3ofTL6
-aD2+HUxYztVIPCkhyO84mQ7W4BFsOnKW4WRfEySHXd2hZkFMgcFNXY3dA6de519q
-lcrL0YYx8ZHpzNt0foEzUsgJd8uJMUVvzPZgExwcyIbv5jWYBg0ILgULo7ve7VXG
-5lMwasW/ch2zKp7tTILnDJwITMjF71h4fn4dMTun/7MWEtSl/iFiALnIL/4/YY71
-7cr4rmcG1424LyxJGRD9L9WjO8etAbPkiRFJUd5fmfqjHkO6fPxyWsMUAu8bfYdV
-RH7qN/erfGHmykmVGgH8AfK9GLT/cjN4GHA29bK9jMed6SWdrkygbQmlnsCAHrw0
-RA+QE0t617h3uTrSEr5vkbLz+KThVEBfH84qsweqcac/unKIZ0e2iRuyVnG4cbq8
-HUdio8gJ62D3wZ0UvVgr4a0CAwEAAQ==
------END PUBLIC KEY-----"""
-
-PRIVATE_KEY = """-----BEGIN RSA PRIVATE KEY-----
-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
------END RSA PRIVATE KEY-----"""
-
-# upon adding a course, generate some keys so we don't need to depend on the keys
+# these are bound to be printed before some security audit
 def get_private_public_keys():
-    # TODO: randomly generate these
-    return (PRIVATE_KEY, PUBLIC_KEY)
-    
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+    )
 
-def get_configs_from_db():
-    return TOOL_CONFIG_MANUAL
+    public_key = private_key.public_key()
+
+    private_key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    public_key_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    return (private_key_pem.decode(), public_key_pem.decode())
+
+def get_public_keys():
+    query = """
+        SELECT
+            public_key
+        FROM deployment_info;
+    """
+    res = []
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, ())
+            rows = cur.fetchall()
+            res = [row[0] for row in rows]
+
+    return res
 
 def insert_deployment_info(deployment_url, client_id, auth_login_url, auth_token_url, key_set_url):
+    private_key, public_key = get_private_public_keys()
     query = """
             INSERT INTO deployment_info (
-                deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
+                deployment_url, client_id, auth_login_url, auth_token_url, key_set_url, public_key, private_key
             )
             VALUES (
-                %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT(deployment_url, client_id) DO UPDATE
             SET auth_login_url = EXCLUDED.auth_login_url,
@@ -161,7 +110,7 @@ def insert_deployment_info(deployment_url, client_id, auth_login_url, auth_token
         """
 
     values = (
-        deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
+        deployment_url, client_id, auth_login_url, auth_token_url, key_set_url, public_key, private_key
     )
 
     with get_connection() as conn:
@@ -198,7 +147,7 @@ def insert_course(deployment_url, client_id, deployment_id):
 def get_deployment_info(deployment_url, client_id):
     query = """
         SELECT
-            deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
+            deployment_url, client_id, auth_login_url, auth_token_url, key_set_url, public_key, private_key
         FROM deployment_info
         WHERE deployment_url = %s AND client_id = %s;
     """
@@ -216,7 +165,9 @@ def get_deployment_info(deployment_url, client_id):
                     "client_id": row[1],
                     "auth_login_url": row[2],
                     "auth_token_url": row[3],
-                    "key_set_url": row[4]
+                    "key_set_url": row[4],
+                    "public_key": row[5],
+                    "private_key": row[6]
                 }
 
     return res
@@ -244,28 +195,7 @@ def get_course(deployment_url, deployment_id):
 
     return res
 
-# TODO: UI should specify deployment_url, deployment_id to be unbroken
 def get_tool_config(deployment_url, deployment_id):
-    # configs = {
-    #     "https://glossalearn.link": [{
-            
-    #         "client_id": "10000000000005",
-
-    #         "auth_login_url": "https://glossalearn.link/api/lti/authorize_redirect",
-    #         "auth_token_url": "https://glossalearn.link/login/oauth2/token",
-    #         "key_set_url": "https://glossalearn.link/api/lti/security/jwks",
-            
-    #         "default": False,
-    #         "key_set": None,
-    #         "private_key_file": "private.key",
-    #         "public_key_file": "public.key",
-    #     }]
-    # }
-    # # we don't need to validate deployment_id since we already verified they were onboarded
-    # for iss in configs.keys():
-    #     for conf in configs[iss]:
-    #         conf["deployment_ids"] = get_all_deployment_ids(deployment_id)
-    
     # ASSUMPTION: course is already inserted
     course = get_course(deployment_url, deployment_id)
     deployment_info = get_deployment_info(deployment_url, course['client_id'])
@@ -284,10 +214,9 @@ def get_tool_config(deployment_url, deployment_id):
         }]
     }
 
-
     tool_conf =  ToolConfDict(configs)
     # BUG(upstream): unfortunately the dict path doesn't set the private/public key!
-    private_key, public_key = get_private_public_keys()
+    private_key, public_key = (deployment_info['private_key'], deployment_info['public_key'])
     for iss, iss_conf in configs.items():
         for iss_conf_item in iss_conf:
             tool_conf.set_private_key(
@@ -344,13 +273,11 @@ def get_lti_config_path():
 
 def get_launch_data_storage():
     return FlaskCacheDataStorage(cache)
-
 def register_lti(
     base,
     registration_token,
 ):
-    # TODO: grab from env var
-    TOOL_URL = 'nixos.tail3db608.ts.net'
+    TOOL_URL = os.getenv('TOOL_URL', 'apiaws.glossalearn.com')
     registration_body = {
         "application_type": "web",
         "client_name": "GlossaLearn",
@@ -438,7 +365,6 @@ def register():
     openid_conf = request.args.get("openid_configuration")
     registration_token = request.args.get("registration_token")
     base = origin(openid_conf)
-    # TODO: reach out to get openid config, for now, assume values
     config_values = get_openid_configuration(openid_conf, registration_token)
     client_id = register_lti(base, registration_token)
     auth_login_url = config_values['authorization_endpoint']
@@ -505,9 +431,7 @@ def launch():
     is_student = str(eval_is_student(current_user))
     return redirect(f'{DEPLOYMENT_URL}/?is_student={is_student}&launch_id={message_launch.get_launch_id()}&deployment_id={deployment_id}&deployment_url={deployment_url}')
 
-def get_public_keys():
-    # TODO: actually get these
-    return [PUBLIC_KEY]
+
 
 @lti_bp.get('/jwks/')
 def get_jwks():

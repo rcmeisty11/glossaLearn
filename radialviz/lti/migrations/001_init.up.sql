@@ -14,6 +14,10 @@ CREATE TABLE
         auth_login_url TEXT NOT NULL,
         auth_token_url TEXT NOT NULL,
         key_set_url TEXT NOT NULL,
+
+        public_key TEXT NOT NULL,
+        private_key TEXT NOT NULL,
+
         PRIMARY KEY (deployment_url, client_id)
     );
 
