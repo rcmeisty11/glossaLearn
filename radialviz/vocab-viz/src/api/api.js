@@ -29,13 +29,18 @@ const fetchRetry = async (url, obj) => {
 }
 
 async function glossaFetch(url, obj) {
-    const { launch_id } = getFieldsFromUrl();
-    const filledUrl = url.replace(LAUNCH_API_TOFILL, launch_id);
+    const { launch_id, deployment_id, deployment_url } = getFieldsFromUrl();
+    const toAdd = '?' + new URLSearchParams({
+        deployment_id, deployment_url
+    }).toString();
+    const filledUrl = url.replace(LAUNCH_API_TOFILL, launch_id) + (url.includes("works") || url.includes("authors") || url.includes("sentences") ? "" : toAdd);
     const response = await fetchRetry(filledUrl, obj);
     if (!response.ok) {
         throw new Error("Failed to fetch assignments");
     }
-    return response.json();
+    const res = await response.json();
+    console.log(res);
+    return res;
 }
 
 export const getAssignments = () => glossaFetch(`${API_BASE}/assignments/${LAUNCH_API_TOFILL}`);
@@ -65,12 +70,4 @@ export const getWorks = (author) => glossaFetch(`${TEXT_API_BASE}/api/works?auth
 
 export const getAuthors = () => glossaFetch(`${TEXT_API_BASE}/api/authors`);
 
-export const getWorkSentences = async (/*workId*/) => {
-    // TODO: test this works regularly, broken on my machine (bad db)
-    // glossaFetch(`${TEXT_API_BASE}/api/sentences?work_id=${workId}`)
-    return {
-        sentences: [
-            { id: "2", text: "lores ipsum" }
-        ]
-    }
-};
+export const getWorkSentences = async (workId) => glossaFetch(`${TEXT_API_BASE}/api/sentences?work_id=${workId}`);

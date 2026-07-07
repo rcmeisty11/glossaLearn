@@ -1,5 +1,7 @@
 from flask import request, jsonify, Blueprint
+import requests
 import os
+import json
 import psycopg
 import datetime
 import os
@@ -134,66 +136,165 @@ N53Mn3jBFOA3Ms2Oyq+gh3Rqa/FOkRMlW3m/7wunQWS7t5xIPs70qErMvLxA3gbx
 PXczMbwczExTwi+tQXgrR/6YRg6qV/T6bm9pDF3h9y9q3/+eTa7zcJXU1SaRuTI=
 -----END RSA PRIVATE KEY-----"""
 
+# upon adding a course, generate some keys so we don't need to depend on the keys
+def get_private_public_keys():
+    # TODO: randomly generate these
+    return (PRIVATE_KEY, PUBLIC_KEY)
+    
+
 def get_configs_from_db():
     return TOOL_CONFIG_MANUAL
 
-def get_all_deployment_ids(deployment_id=""):
-    if deployment_id:
-        # store in db
-        query = """
-            INSERT INTO course (
-                deployment_id
+def insert_deployment_info(deployment_url, client_id, auth_login_url, auth_token_url, key_set_url):
+    query = """
+            INSERT INTO deployment_info (
+                deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
             )
             VALUES (
-                %s
+                %s, %s, %s, %s, %s
             )
-            ON CONFLICT(deployment_id) DO NOTHING
-            RETURNING deployment_id ;
+            ON CONFLICT(deployment_url, client_id) DO UPDATE
+            SET auth_login_url = EXCLUDED.auth_login_url,
+            auth_token_url = EXCLUDED.auth_token_url,
+            key_set_url = EXCLUDED.key_set_url
+            RETURNING 1 ;
         """
 
-        values = (
-            deployment_id,
-        )
+    values = (
+        deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
+    )
 
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, values)
-                row = cur.fetchone()
-
-            conn.commit()
-    query = """
-        SELECT
-            deployment_id
-        FROM course
-    """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, ())
+            cur.execute(query, values)
+            cur.fetchone()
+
+        conn.commit()
+
+def insert_course(deployment_url, client_id, deployment_id):
+    query = """
+            INSERT INTO course (
+                deployment_url, client_id, deployment_id
+            )
+            VALUES (
+                %s, %s, %s
+            )
+            ON CONFLICT(deployment_url, deployment_id) DO UPDATE
+            SET client_id = EXCLUDED.client_id
+            RETURNING 1 ;
+        """
+
+    values = (
+        deployment_url, client_id, deployment_id
+    )
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, values)
+            cur.fetchone()
+
+        conn.commit()
+
+def get_deployment_info(deployment_url, client_id):
+    query = """
+        SELECT
+            deployment_url, client_id, auth_login_url, auth_token_url, key_set_url
+        FROM deployment_info
+        WHERE deployment_url = %s AND client_id = %s;
+    """
+    res = None
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (deployment_url,client_id))
             rows = cur.fetchall()
 
-    deployment_ids = []
+
+            for row in rows:
+                res = {
+                    "deployment_url": row[0],
+                    "client_id": row[1],
+                    "auth_login_url": row[2],
+                    "auth_token_url": row[3],
+                    "key_set_url": row[4]
+                }
+
+    return res
+def get_course(deployment_url, deployment_id):
+    query = """
+        SELECT
+            deployment_url, client_id, deployment_id
+        FROM course
+        WHERE deployment_url = %s AND deployment_id = %s;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (deployment_url,deployment_id))
+            rows = cur.fetchall()
+
+    res = None
 
     for row in rows:
-        deployment_ids.append(row[0])
-    print(deployment_ids)
-    return deployment_ids
+        res = {
+            "deployment_url": row[0],
+            "client_id": row[1],
+            "deployment_id": row[2]
+        }
 
-def get_tool_config(deployment_id=""):
-    # return ToolConfJsonFile(get_lti_config_path())
-    configs = get_configs_from_db()
-    # we don't need to validate deployment_id since we already verified they were onboarded
-    for iss in configs.keys():
-        for conf in configs[iss]:
-            conf["deployment_ids"] = get_all_deployment_ids(deployment_id)
+    return res
+
+# TODO: UI should specify deployment_url, deployment_id to be unbroken
+def get_tool_config(deployment_url, deployment_id):
+    # configs = {
+    #     "https://glossalearn.link": [{
+            
+    #         "client_id": "10000000000005",
+
+    #         "auth_login_url": "https://glossalearn.link/api/lti/authorize_redirect",
+    #         "auth_token_url": "https://glossalearn.link/login/oauth2/token",
+    #         "key_set_url": "https://glossalearn.link/api/lti/security/jwks",
+            
+    #         "default": False,
+    #         "key_set": None,
+    #         "private_key_file": "private.key",
+    #         "public_key_file": "public.key",
+    #     }]
+    # }
+    # # we don't need to validate deployment_id since we already verified they were onboarded
+    # for iss in configs.keys():
+    #     for conf in configs[iss]:
+    #         conf["deployment_ids"] = get_all_deployment_ids(deployment_id)
+    
+    # ASSUMPTION: course is already inserted
+    course = get_course(deployment_url, deployment_id)
+    deployment_info = get_deployment_info(deployment_url, course['client_id'])
+    configs = {
+        deployment_url: [{
+            
+            "client_id": course['client_id'],
+
+            "auth_login_url": deployment_info['auth_login_url'],
+            "auth_token_url": deployment_info['auth_token_url'],
+            "key_set_url": deployment_info['key_set_url'],
+            "deployment_ids": [deployment_id],
+            
+            "default": False,
+            "key_set": None,
+        }]
+    }
+
+
     tool_conf =  ToolConfDict(configs)
     # BUG(upstream): unfortunately the dict path doesn't set the private/public key!
+    private_key, public_key = get_private_public_keys()
     for iss, iss_conf in configs.items():
         for iss_conf_item in iss_conf:
             tool_conf.set_private_key(
-                iss, PRIVATE_KEY, client_id=iss_conf_item["client_id"]
+                iss, private_key, client_id=iss_conf_item["client_id"]
             )
             tool_conf.set_public_key(
-                iss, PUBLIC_KEY, client_id=iss_conf_item["client_id"]
+                iss, public_key, client_id=iss_conf_item["client_id"]
             )
     return tool_conf
 
@@ -244,11 +345,119 @@ def get_lti_config_path():
 def get_launch_data_storage():
     return FlaskCacheDataStorage(cache)
 
+def register_lti(
+    base,
+    registration_token,
+):
+    # TODO: grab from env var
+    TOOL_URL = 'nixos.tail3db608.ts.net'
+    registration_body = {
+        "application_type": "web",
+        "client_name": "GlossaLearn",
+        "client_uri": f'https://{TOOL_URL}',
+        "grant_types": ["client_credentials", "implicit"],
+
+        "jwks_uri": f"https://{TOOL_URL}/jwks/",
+        "initiate_login_uri": f"https://{TOOL_URL}/login/",
+        "redirect_uris": [f"https://{TOOL_URL}/launch/"],
+
+        "response_types": ["id_token"],
+        "scope": "https://purl.imsglobal.org/spec/lti-reg/scope/registration.readonly https://purl.imsglobal.org/spec/lti-reg/scope/registration https://purl.imsglobal.org/spec/lti-ags/scope/lineitem https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly https://purl.imsglobal.org/spec/lti-ags/scope/result.readonly https://purl.imsglobal.org/spec/lti-ags/scope/score https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly https://purl.imsglobal.org/spec/lti/scope/noticehandlers https://canvas.instructure.com/lti/public_jwk/scope/update https://canvas.instructure.com/lti/account_lookup/scope/show https://canvas.instructure.com/lti-ags/progress/scope/show https://canvas.instructure.com/lti/page_content/show",
+        "token_endpoint_auth_method": "private_key_jwt",
+        "logo_uri": f"https://{TOOL_URL}/icon.svg",
+
+        "https://purl.imsglobal.org/spec/lti-tool-configuration": {
+            "claims": [
+            # "sub",
+            # "iss",
+            # "name",
+            # "given_name",
+            # "family_name",
+            # "nickname",
+            # "picture",
+            # "email",
+            # "locale"
+            ],
+            "custom_parameters": {},
+            "domain": TOOL_URL,
+            "messages": [
+            {
+                "type": "LtiResourceLinkRequest",
+                "icon_uri": f"https://{TOOL_URL}/icon.svg",
+                "label": "GlossaLearn",
+                "placements": ["course_navigation"],
+                "target_link_uri": f"https://{TOOL_URL}/launch/"
+            },
+            {
+                "type": "LtiResourceLinkRequest",
+                "icon_uri": f"https://{TOOL_URL}/icon.svg",
+                "placements": ["account_navigation"],
+            },
+            {
+                "type": "LtiResourceLinkRequest",
+                "icon_uri": f"https://{TOOL_URL}/icon.svg",
+                "label": "GlossaLearn",
+                "placements": ["link_selection"],
+                "target_link_uri": f"https://TOOL_URL/launch/"
+            }
+            ],
+            "target_link_uri": f"https://{TOOL_URL}/launch/",
+            "https://canvas.instructure.com/lti/tool_id": "",
+            "https://canvas.instructure.com/lti/privacy_level": "anonymous"
+        }
+    }
+    response = requests.post(
+        f'{base}/api/lti/registrations',
+        json=registration_body,
+        headers={'Authorization': f"Bearer {registration_token}"},
+    )
+
+    response.raise_for_status()
+    return response.json()['client_id']
+
+def get_openid_configuration(base, registration_token):
+
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {registration_token}",
+    }
+
+    response = requests.get(base, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    return response.json()
+
+from urllib.parse import urlsplit
+
+def origin(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+@lti_bp.route('/register/', methods=['GET'])
+def register():
+    openid_conf = request.args.get("openid_configuration")
+    registration_token = request.args.get("registration_token")
+    base = origin(openid_conf)
+    # TODO: reach out to get openid config, for now, assume values
+    config_values = get_openid_configuration(openid_conf, registration_token)
+    client_id = register_lti(base, registration_token)
+    auth_login_url = config_values['authorization_endpoint']
+    auth_token_url = config_values['token_endpoint']
+    key_set_url = config_values['jwks_uri']
+    insert_deployment_info(base, client_id, auth_login_url, auth_token_url, key_set_url)
+    return "Tool added! Refresh page and enable!"
 
 @lti_bp.route('/login/', methods=['GET', 'POST'])
 def login():
-    print(request.form.get("lti_deployment_id"))
-    tool_conf = get_tool_config(request.form.get("lti_deployment_id"))
+    iss = request.form.get("iss")
+    deployment_id = request.form.get("lti_deployment_id")
+    client_id = request.form.get("client_id")
+    if iss == None:
+        iss = origin(request.args.get('iss'))
+        deployment_id = request.args.get("lti_deployment_id")
+        client_id = request.args.get("client_id")
+    insert_course(iss, client_id, deployment_id)
+    tool_conf = get_tool_config(iss, deployment_id)
     launch_data_storage = get_launch_data_storage()
 
     flask_request = FlaskRequest()
@@ -279,29 +488,41 @@ def eval_is_student(current_user):
 
 @lti_bp.post('/launch/')
 def launch():
-    tool_conf = get_tool_config()
+    # directly decode jwt to get deployment_url, deployment_id
+    # this is safe, since we still validate before doing anything
+    id_token = request.form.get('id_token')
+    jwt_parts = id_token.split(".")
+    body = json.loads(FlaskMessageLaunch.urlsafe_b64decode(jwt_parts[1]))
+    
+    deployment_url = body['iss']
+    deployment_id = body['https://purl.imsglobal.org/spec/lti/claim/deployment_id']
+    tool_conf = get_tool_config(deployment_url, deployment_id)
     flask_request = FlaskRequest()
     launch_data_storage = get_launch_data_storage()
     message_launch = ExtendedFlaskMessageLaunch(flask_request, tool_conf, launch_data_storage=launch_data_storage)
-
+    
     current_user = get_user(message_launch)
     is_student = str(eval_is_student(current_user))
-    return redirect(f'{DEPLOYMENT_URL}/?is_student={is_student}&launch_id={message_launch.get_launch_id()}')
+    return redirect(f'{DEPLOYMENT_URL}/?is_student={is_student}&launch_id={message_launch.get_launch_id()}&deployment_id={deployment_id}&deployment_url={deployment_url}')
 
+def get_public_keys():
+    # TODO: actually get these
+    return [PUBLIC_KEY]
 
 @lti_bp.get('/jwks/')
 def get_jwks():
-    tool_conf = get_tool_config()
-    return jsonify({'keys': tool_conf.get_jwks()})
+    return jsonify({'keys': {"keys": [Registration.get_jwk(k) for k in get_public_keys()]}})
 
 def get_deployment_user_id(message_launch):
     launch_data = message_launch.get_launch_data()
     return (launch_data.get('https://purl.imsglobal.org/spec/lti/claim/deployment_id', ''), launch_data.get('https://purl.imsglobal.org/spec/lti/claim/lti1p1', {}).get('user_id', ''))
 
 # TODO: should be middleware, as with many other things, refactor later
-def get_message_launch_and_gate_nonusers(launch_id, teacher_only=False):
+def get_message_launch_and_gate_nonusers(launch_id, args, teacher_only=False):
+    deployment_url = args.get('deployment_url')
+    deployment_id = args.get('deployment_id')
     try:
-        tool_conf = get_tool_config()
+        tool_conf = get_tool_config(deployment_url, deployment_id)
         flask_request = FlaskRequest()
         launch_data_storage = get_launch_data_storage()
         message_launch = ExtendedFlaskMessageLaunch.from_cache(launch_id, flask_request, tool_conf,
@@ -335,7 +556,7 @@ def get_message_launch_and_gate_nonusers(launch_id, teacher_only=False):
 interactive_bp = Blueprint('interactive', __name__)
 @interactive_bp.get("/assignments/<launch_id>")
 def get_assignments(launch_id):
-    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id)
+    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, request.args)
     deployment_id, _ = get_deployment_user_id(message_launch)
     query = """
         SELECT
@@ -375,7 +596,7 @@ def get_assignments(launch_id):
 # we should instead break this into two different endpoints
 @interactive_bp.get("/submissions/<launch_id>")
 def get_submissions(launch_id):
-    message_launch, current_user = get_message_launch_and_gate_nonusers(launch_id)
+    message_launch, current_user = get_message_launch_and_gate_nonusers(launch_id, request.args)
     deployment_id, user_id = get_deployment_user_id(message_launch)
     student_id = '' if not eval_is_student(current_user) else user_id
     query = """
@@ -409,13 +630,14 @@ def get_submissions(launch_id):
 
 @interactive_bp.post("/assignment/<launch_id>")
 def create_assignment(launch_id):
-    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, teacher_only=True)
+    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, request.args, teacher_only=True)
     deployment_id, _ = get_deployment_user_id(message_launch)
     body = request.get_json()
 
     query = """
         INSERT INTO assignment (
             deployment_id,
+            deployment_url,
             assignment_id,
             assignment_type,
             author,
@@ -425,6 +647,7 @@ def create_assignment(launch_id):
         VALUES (
             %s,
             %s,
+            %s,
             %s, %s, %s, %s
         )
         RETURNING assignment_id;
@@ -432,6 +655,7 @@ def create_assignment(launch_id):
 
     values = (
         deployment_id,
+        request.args['deployment_url'],
         body["assignment_id"],
         body["assignment_type"],
         body["author"],
@@ -454,7 +678,7 @@ def create_assignment(launch_id):
 # TODO: unify create/submit submission via upsert
 @interactive_bp.post("/submission/<launch_id>")
 def create_submission(launch_id):
-    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id)
+    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, request.args)
     body = request.get_json()
     deployment_id, _ = get_deployment_user_id(message_launch)
     
@@ -464,11 +688,13 @@ def create_submission(launch_id):
     query = """
         INSERT INTO assignment_submission (
             deployment_id,
+            deployment_url,
             assignment_id,
             student_id,
             assignment_artifact
         )
         VALUES (
+            %s,
             %s,
             %s, %s,
             %s
@@ -486,6 +712,7 @@ def create_submission(launch_id):
 
     values = (
         deployment_id,
+        request.args['deployment_url'],
         body["assignment_id"],
         student_id,
         body["assignment_artifact"],
@@ -506,7 +733,7 @@ def create_submission(launch_id):
 @interactive_bp.post("/submission/<launch_id>/submit")
 def submit_submission(launch_id):
 
-    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id)
+    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, request.args)
     body = request.get_json()
     deployment_id, _ = get_deployment_user_id(message_launch)
     student_id = message_launch.get_launch_data().get('sub')
@@ -544,7 +771,7 @@ def submit_submission(launch_id):
 @interactive_bp.post("/submission/<launch_id>/grade")
 def grade_submission(launch_id):
 
-    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, teacher_only=True)
+    message_launch, _ = get_message_launch_and_gate_nonusers(launch_id, request.args, teacher_only=True)
     body = request.get_json()
     deployment_id, _ = get_deployment_user_id(message_launch)
 

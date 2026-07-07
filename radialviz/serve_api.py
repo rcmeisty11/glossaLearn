@@ -514,7 +514,7 @@ def get_lemma_by_name(lemma_text):
 @app.route("/api/sentences")
 def get_work_sentences():
     db = get_db()
-    work_id = request.args.get("work_id", type=int)
+    work_id = request.args.get("work_id")
 
     # Check if sentences table exists
     table_check = db.execute(
@@ -525,8 +525,7 @@ def get_work_sentences():
 
     rows = db.execute("""
         SELECT s.id, s.passage, s.sentence_text, w.title, w.author, w.id as work_id
-        FROM sentence_lemmas sl
-        JOIN sentences s ON s.id = sl.sentence_id
+        FROM sentences s
         JOIN works w ON w.id = s.work_id
         WHERE s.work_id = ?
         ORDER BY s.sentence_pos
