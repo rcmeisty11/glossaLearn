@@ -509,67 +509,20 @@ Use spit out URL for next steps
 
 You will need to create an LTI dev key. Go to `Site Admin` via `Admin`, then hit `Developer Keys`. 
 
-`+Developer Key > LTI KEY`
+`+Developer Key > LTI REGISTRATION`
 
-Change input to JSON and paste this (perms are wide! can limit as needed):
+Find the deployment url, for prod, this is `https://apiaws.glosslearn.com/register/`
 
-```json
-{
-  "title": "GlossLearn",
-  "description": "GlossaLearn",
-  "target_link_uri": "https://TOOL_URL/launch/",
-  "oidc_initiation_url": "https://TOOL_URL/login/",
-  "oidc_initiation_urls": {},
-  "public_jwk_url": "https://TOOL_URL/jwks/",
-  "public_jwk": null,
-  "custom_fields": {},
-  "scopes": [
-    "https://purl.imsglobal.org/spec/lti-reg/scope/registration.readonly",
-    "https://purl.imsglobal.org/spec/lti-reg/scope/registration",
-    "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem",
-    "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly",
-    "https://purl.imsglobal.org/spec/lti-ags/scope/result.readonly",
-    "https://purl.imsglobal.org/spec/lti-ags/scope/score",
-    "https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly",
-    "https://purl.imsglobal.org/spec/lti/scope/noticehandlers",
-    "https://canvas.instructure.com/lti/public_jwk/scope/update",
-    "https://canvas.instructure.com/lti/account_lookup/scope/show",
-    "https://canvas.instructure.com/lti-ags/progress/scope/show",
-    "https://canvas.instructure.com/lti/page_content/show"
-  ],
-  "extensions": [
-    {
-      "domain": "",
-      "tool_id": "",
-      "privacy_level": "anonymous",
-      "platform": "canvas.instructure.com",
-      "settings": {
-        "platform": "canvas.instructure.com",
-        "placements": [
-          {
-            "title": "My Tool",
-            "placement": "course_navigation",
-            "message_type": "LtiResourceLinkRequest",
-            "target_link_uri": "https://TOOL_URL/launch/"
-          },
-          {
-            "placement": "account_navigation",
-            "message_type": "LtiResourceLinkRequest"
-          },
-          {
-            "placement": "link_selection",
-            "message_type": "LtiResourceLinkRequest"
-          }
-        ]
-      }
-    }
-  ]
-}
-```
+For tailscale, this is `YOUR_TAILSCALE_URL/register/`
 
-TOOL_URL will be either the production tool deployment or the Tailscale serve deployment. Ensure you have both EC2 and your dev machine are logged into Tailscale.
+Once created, refresh page, click "on" (YES ITS A BUTTON, canvas has terrible UX), copy "client_id" (big long number like `10000000000019`)
 
-### Next steps for LTI
+We only support this automatic flow for adding LTI keys
+
+Then go into your course, into course settings, "Apps", then add an app via "client_id"
+
+
+### old info
 
 We based our implementation off of: https://github.com/dmitry-viskov/pylti1.3-flask-example
 
@@ -577,102 +530,11 @@ Which depends on [this](https://github.com/dmitry-viskov/pylti1.3) old Python LT
 
 We forked the old start and switched to the new version without any problems. 
 
-When you use that starter, add the following to `configs/game.json`:
+### Canvas Deployment Help
 
-```json
-"CANVAS_DEPLOYMENT_URL": [{
-        "client_id": "10000000000001",
-        "auth_login_url": "https://CANVAS_DEPLOYMENT_URL/api/lti/authorize_redirect",
-        "auth_token_url": "https://CANVAS_DEPLOYMENT_URL/login/oauth2/token",
-        "key_set_url": "https://CANVAS_DEPLOYMENT_URL/api/lti/security/jwks",
-        "key_set": null,
-        "private_key_file": "private.key",
-        "public_key_file": "public.key",
-        "deployment_ids": ["DEPID FROM CANVAS"]
-    }]
-```
-
-Once automated registration is implemented, the above process will be 
-
-Update depid once you add LTI key.
-
-Add test canvas user created above via "people" on your course.
-
-This starter should work and it does everything that is needed for the GlossaLearn LTI integration.
-
-  4 undefined method 'sign' for nil (via /error_reports/id) 
+  `4 undefined method 'sign' for nil (via /error_reports/id)`
 
  means you need to add dynamic settings.yml: https://github.com/instructure/canvas-lms/issues/1981
 
 Reach out to GLEngineer if you have any error codes or need help debugging
 
-The next steps are to get a basic in-memory demo of our 3 assignments, get this working outside ephemeral caches and get this to work for general deployments/enable users to easily add our app to their Canvas instance.
-
-#### workarounds
-
-##### automated registration
-
-[automated registration](https://developerdocs.instructure.com/services/canvas/external-tools/lti/file.registration) is not implemented just yet.
-
-for now, to add this to a course:
-
-- add LTI key as admin (from paste above)
-- enable LTI key
-- add tool to course
-- get deployment id from that and add the config to the tool side
-
-once automated registration is done, all of the above should be automated
-
-##### TODO
-
-
-### Specification
-
-- Instructors should be able to assign any of three assignments: translation, production (pronunciation), perception (understanding some spoken language)
-- Students should be able to complete any such assigned task
-- Instructors should be able to assign specific tasks to all of their students as an assignment (future, sequence of such tasks)
-- For a particular student, an instructur should be able to review a submission, for a grade, which is assigned to a student
-- Student grades should be forwarded to LMS (Canvas)
-Tentative designs:
-
-![create](create.png)
-![grade](grade.png)
-![complete (student)](complete.png)
-
-### Design
-
-Designs are a bit rough, with wiggle room (depending on information from canvas)
-
-Auth(n/z) is before these functions and thus implied
-
-#### DB Relations
-
-enums:
-- assignment enum (translation, perception, production)
-
-relationships: 
-
-- course (deployment id)
-- assignment (course, assignment_id, assignment_enum, assignment_submission_id) (pk same as row - assignment enum, assignment_submission_id)
-- assignment score (course, assignment_id, student_id, assignment_score) (pk (course, assignment_id, student_id))
-- assignment_submission (course_id, assignment_id, assignment_submission_id, assignment_artifact) (artifact link to audio or raw translation/perception text)
-
-##### Extra indices
-
-We should be able to query all assignment scores via course (assignment scores by course)
-
-Everything else should at least be via PK
-
-
-#### Backend Methods
-
-We need the following methods (and implied objects sent as json over wire):
-
-- Get all submissions (take deployement_id, ret []submission)
-- Grade submission (take pk for submission, grade)
-- Create submission (take submission)
-- Submit submission (take pk for submission)
-
-#### Frontend
-
-See design as before

@@ -56,15 +56,17 @@ export default function TeacherAssign() {
   }
 
   async function loadAuthors() {
-    setAuthors(await getAuthors().authors || []);
+    const authors = (await getAuthors()).authors || [];
+    console.log(authors);
+    setAuthors(authors);
   }
 
   async function loadWorks(author) {
-    setWorks(await getWorks(author).works || []);
+    setWorks((await getWorks(author)).works || []);
   }
 
-  async function loadSentences(workId) {
-    setSentences(await getWorkSentences(workId).sentences || []);
+  async function loadSentences(work) {
+    setSentences((await getWorkSentences(works.filter((w) => w.title === work)[0]?.id)).sentences || []);
   }
 
   function handleAuthorChange(value) {

@@ -15,5 +15,3 @@ run migrations:
 query that db:
 
 `podman exec -it lti-postgres psql -U postgres -d app_db`
-
-seed data via above command and the `seed.sql` file
