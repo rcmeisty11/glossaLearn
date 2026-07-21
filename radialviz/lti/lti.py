@@ -594,6 +594,13 @@ def create_assignment(launch_id):
 
         conn.commit()
 
+    sc_line_item = LineItem()
+    sc_line_item.set_tag(body['assignment_id']) \
+        .set_score_maximum(100) \
+        .set_label(body['assignment_id'])
+    grades = message_launch.get_ags()
+    grades.find_or_create_lineitem(sc_line_item)
+
     return jsonify({
         "status": "created",
         "assignment_id": row[0]
@@ -736,11 +743,12 @@ def grade_submission(launch_id):
         .set_activity_progress('Completed') \
         .set_grading_progress('FullyGraded') \
         .set_user_id(body["student_id"])
-
+    
     sc_line_item = LineItem()
-    sc_line_item.set_tag('score') \
+    sc_line_item.set_tag(body['assignment_id']) \
         .set_score_maximum(100) \
-        .set_label('Score')
+        .set_label(body['assignment_id'])
+
     if resource_link_id:
         sc_line_item.set_resource_id(resource_link_id)
 
