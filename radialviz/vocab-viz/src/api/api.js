@@ -33,7 +33,7 @@ async function glossaFetch(url, obj) {
     const toAdd = '?' + new URLSearchParams({
         deployment_id, deployment_url
     }).toString();
-    const filledUrl = url.replace(LAUNCH_API_TOFILL, launch_id) + (url.includes("works") || url.includes("authors") || url.includes("sentences") ? "" : toAdd);
+    const filledUrl = url.replace(LAUNCH_API_TOFILL, launch_id) + (url.includes("works") || url.includes("authors") || url.includes("sentence") ? "" : toAdd);
     const response = await fetchRetry(filledUrl, obj);
     if (!response.ok) {
         throw new Error("Failed to fetch assignments");
@@ -71,3 +71,51 @@ export const getWorks = (author) => glossaFetch(`${TEXT_API_BASE}/api/works?auth
 export const getAuthors = () => glossaFetch(`${TEXT_API_BASE}/api/authors`);
 
 export const getWorkSentences = async (workId) => glossaFetch(`${TEXT_API_BASE}/api/sentences?work_id=${workId}`);
+export const getSentence = async (id) => glossaFetch(`${TEXT_API_BASE}/api/sentence?id=${id}`);
+
+export async function sendAudioToServer(blob, language) {
+    const copy = await fetch(blob).then((r) => r.blob());
+    const formData = new FormData();
+    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
+    formData.append("language", language);
+
+    try {
+      const response = await fetch(`${TEXT_API_BASE}/transcribe`, {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      console.log(data);
+      return data.text;
+    } catch (err) {
+      console.log("Failed to send audio:", err);
+      return null;
+    }
+  }
+
+export async function uploadAudio(blob) {
+    const copy = await fetch(blob).then((r) => r.blob());
+    const formData = new FormData();
+    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
+
+    try {
+      const response = await fetch(`${TEXT_API_BASE}/upload`, {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      return data?.uuid;
+    } catch (err) {
+      console.log("Failed to send audio:", err);
+      return null;
+    }
+  }
+
+  export async function getUserUpload(uuid) {
+    const response = await fetch(`${TEXT_API_BASE}/upload?uuid=${uuid}`);
+    console.log(response);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  }

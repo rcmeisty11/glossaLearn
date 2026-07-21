@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
 import {
+  getAssignments,
   getSubmissions,
-  gradeSubmission
+  gradeSubmission,
+  getUserUpload
 } from "../api/api";
 
 export default function TeacherGrade() {
@@ -11,6 +13,14 @@ export default function TeacherGrade() {
 
   const [selectedSubmission, setSelectedSubmission] =
     useState(null);
+
+  const [audioUrl, setAudioUrl] = useState(null);
+  useEffect(() => {
+    (async () => {
+    if (selectedSubmission?.assignment_type !== 'production') return;
+    setAudioUrl(await getUserUpload(selectedSubmission?.assignment_artifact));
+  })()
+  }, [selectedSubmission]);
 
   const [grade, setGrade] = useState("");
 
@@ -22,7 +32,12 @@ export default function TeacherGrade() {
   }, []);
 
   async function loadSubmissions() {
-    setSubmissions(await getSubmissions());
+    const assignments = await getAssignments();
+    const submissions = (await getSubmissions()).map(s => {
+      return {...s, assignment_type: assignments.find(a => a.assignment_id == s.assignment_id).assignment_type};
+    });
+    console.log(assignments, submissions);
+    setSubmissions(submissions);
 
   }
 
@@ -102,7 +117,15 @@ export default function TeacherGrade() {
           <div>
             <label>Artifact</label>
 
-            <textarea
+            {selectedSubmission.assignment_type === "production" && <video
+            ref={null}
+            controls
+            autoPlay
+            src={audioUrl}
+            loop
+          />}
+
+           {selectedSubmission.assignment_type !== "production" &&  <textarea
               readOnly
               value={
                 selectedSubmission.assignment_artifact
@@ -110,7 +133,7 @@ export default function TeacherGrade() {
 
               className="glossalearn-input"
             />
-
+}
             <label>Grade</label>
 
             <input

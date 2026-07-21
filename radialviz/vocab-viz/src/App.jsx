@@ -12,6 +12,7 @@ import TeacherGrade from "./views/TeacherGrade.jsx";
 import StudentAnswer from "./views/StudentAnswer.jsx";
 
 import { getFieldsFromUrl } from "./lti/lti.js";
+import {sendAudioToServer} from "./api/api.js";
 
 
 
@@ -3327,27 +3328,7 @@ function ProductionTraining({ language, toPronounce }) {
       return null;
     }
   }
-  async function sendAudioToServer(blob) {
-    const copy = await fetch(blob).then((r) => r.blob());
-    const formData = new FormData();
-    formData.append("file", new File([copy], "recording.webm", { type: copy.type }));
-    formData.append("language", languages[language]);
-
-    try {
-      const response = await fetch(`${BASE}/transcribe`, {
-        method: "POST",
-        body: formData
-      });
-
-      const data = await response.json();
-      console.log(data);
-      setlastWordsUttered(data.text.toLocaleLowerCase('el').toLocaleLowerCase('en'));
-      return data.text;
-    } catch (err) {
-      console.log("Failed to send audio:", err);
-      return null;
-    }
-  }
+  
   return (
     <>
       {!toPronounce && <button style={{
@@ -3391,7 +3372,10 @@ function ProductionTraining({ language, toPronounce }) {
         }}
       />
 
-      <Flashcard callback={() => sendAudioToServer(mediaBlobUrl)} toSay={toSay} lastWordsUttered={lastWordsUttered} />
+      <Flashcard callback={async () => {
+        const res = await sendAudioToServer(mediaBlobUrl, languages[language]);
+        setlastWordsUttered(res.toLocaleLowerCase('el').toLocaleLowerCase('en'));
+      }} toSay={toSay} lastWordsUttered={lastWordsUttered} />
     </>
   )
 }

@@ -28,6 +28,7 @@ import json
 import sqlite3
 import sys
 import os
+import uuid
 from functools import wraps
 from pathlib import Path
 
@@ -543,6 +544,36 @@ def get_work_sentences():
         })
 
     result = {"sentences": sentences}
+    return jsonify(result)
+
+@app.route("/api/sentence")
+def get_sentence():
+    db = get_db()
+    id = request.args.get("id")
+
+    # Check if sentences table exists
+    table_check = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sentences'"
+    ).fetchone()
+    if not table_check:
+        return jsonify({"sentences": [], "note": "Sentences table not yet built"})
+
+    rows = db.execute("""
+        SELECT id, passage, sentence_text
+        FROM sentences
+        WHERE id = ?
+        ORDER BY sentence_pos
+    """, (id,)).fetchall()
+
+    sentence = None
+    for r in rows:
+        sentence = {
+            "id": r["id"],
+            "passage": r["passage"],
+            "text": r["sentence_text"]
+        }
+
+    result = {"sentence": sentence}
     return jsonify(result)
 
 # ─────────────────────────────────────────────
@@ -1768,6 +1799,50 @@ def transcribe():
         "text": transcript.text
     })
 
+USER_UPLOADS = "./user-uploads"
+    
+@app.route("/upload", methods=["POST"])
+def upload():
+
+    if "file" not in request.files:
+        return jsonify({"error": "no file field"}), 400
+
+    file = request.files["file"]
+    
+    uuid_str = str(uuid.uuid4())
+    if not os.path.exists(USER_UPLOADS):
+        os.makedirs(USER_UPLOADS)
+
+    input_path = os.path.join(USER_UPLOADS, f'{uuid_str}.webm')
+    file.save(input_path)
+    if not os.path.exists(input_path):
+        return jsonify({"error": "file not saved"}), 500
+
+
+    return jsonify({
+        "uuid": uuid_str
+    })
+@app.route("/upload", methods=["GET"])
+def get_user_upload():
+
+    uuid_str = request.args['uuid']
+
+    input_path = os.path.join(USER_UPLOADS, f'{uuid_str}.webm')
+
+    audio = AudioSegment.from_file(input_path)
+
+    mp3_buffer = BytesIO()
+    audio.export(mp3_buffer, format="ogg", bitrate="48k")
+    mp3_buffer.seek(0)
+
+    response = send_file(
+        mp3_buffer,
+        mimetype="application/ogg",
+        as_attachment=False,
+        download_name="audio.ogg"
+    )
+
+    return response
 @app.route("/get_perception_task", methods=["GET"])
 def get_perception_task():
 

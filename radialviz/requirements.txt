@@ -11,3 +11,4 @@ gunicorn==26.0.0
 psycopg-c==3.3.4
 psycopg2-binary==2.9.12
 cryptography==49.0.0
+uuid==1.30
