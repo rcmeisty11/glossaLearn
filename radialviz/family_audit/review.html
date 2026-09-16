@@ -1,0 +1,587 @@
+<!doctype html>
+<title>Derivation Ledger</title>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eef0ee;
+    --paper-raised: #ffffff;
+    --ink: #23282a;
+    --ink-soft: #5b6467;
+    --ink-faint: #838d8f;
+    --rule: #d5dad8;
+    --rule-strong: #b9c1be;
+    --accent: #2c5d53;
+    --accent-strong: #1f463e;
+    --accent-tint: #dde9e5;
+    --conf-high: #2f7d4f;
+    --conf-high-tint: #e1efe4;
+    --conf-medium: #96691f;
+    --conf-medium-tint: #f3e9d6;
+    --conf-low: #6f5f96;
+    --conf-low-tint: #e9e5f1;
+    --reject: #a3382f;
+    --reject-tint: #f4e2df;
+    --shadow: 0 1px 2px rgba(35,40,42,0.06), 0 4px 16px rgba(35,40,42,0.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181a;
+      --paper-raised: #1b2123;
+      --ink: #e7eae8;
+      --ink-soft: #9aa3a0;
+      --ink-faint: #71797a;
+      --rule: #303838;
+      --rule-strong: #414c4b;
+      --accent: #6cc0ab;
+      --accent-strong: #8ed6c3;
+      --accent-tint: #1e3530;
+      --conf-high: #57b47b;
+      --conf-high-tint: #1c3226;
+      --conf-medium: #d9a75a;
+      --conf-medium-tint: #362c19;
+      --conf-low: #b3a3d9;
+      --conf-low-tint: #2c2739;
+      --reject: #e0776d;
+      --reject-tint: #3a201d;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181a;
+    --paper-raised: #1b2123;
+    --ink: #e7eae8;
+    --ink-soft: #9aa3a0;
+    --ink-faint: #71797a;
+    --rule: #303838;
+    --rule-strong: #414c4b;
+    --accent: #6cc0ab;
+    --accent-strong: #8ed6c3;
+    --accent-tint: #1e3530;
+    --conf-high: #57b47b;
+    --conf-high-tint: #1c3226;
+    --conf-medium: #d9a75a;
+    --conf-medium-tint: #362c19;
+    --conf-low: #b3a3d9;
+    --conf-low-tint: #2c2739;
+    --reject: #e0776d;
+    --reject-tint: #3a201d;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.35);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: 20px 60px;
+  }
+  h1, h2 { font-family: "Spectral", Georgia, serif; text-wrap: balance; margin: 0; }
+  .greek { font-family: "Spectral", Georgia, serif; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  header.page {
+    max-width: 1200px;
+    margin: 0 auto 22px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+    border-bottom: 1px solid var(--rule-strong);
+    padding-bottom: 16px;
+  }
+  header.page h1 { font-size: 26px; font-weight: 600; }
+  header.page .sub { color: var(--ink-soft); font-size: 13px; max-width: 46ch; }
+
+  main { max-width: 1200px; margin: 0 auto; }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .tile {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 12px 14px;
+  }
+  .tile .n { font-family: "IBM Plex Mono", monospace; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); margin-top: 2px; }
+  .tile.pending .n { color: var(--conf-medium); }
+  .tile.approved .n { color: var(--conf-high); }
+  .tile.rejected .n { color: var(--reject); }
+
+  .toolbar {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: var(--paper);
+    padding-block: 10px;
+    margin-bottom: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid var(--rule);
+  }
+  .toolbar input[type="search"] {
+    flex: 1 1 220px;
+    min-width: 160px;
+  }
+  select, input[type="search"] {
+    font: inherit;
+    font-size: 13px;
+    background: var(--paper-raised);
+    color: var(--ink);
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    padding: 7px 10px;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 3px;
+    border: 1px solid var(--rule-strong);
+    background: var(--paper-raised);
+    color: var(--ink);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--ink-faint); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--paper-raised); }
+  button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  button.danger-outline { color: var(--reject); border-color: var(--reject); background: transparent; }
+  button.danger-outline:hover { background: var(--reject-tint); }
+  button.ghost { border-color: transparent; background: transparent; padding: 5px 8px; }
+  button.ghost:hover { background: var(--rule); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.small { font-size: 12px; padding: 5px 9px; }
+
+  .bulkbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    background: var(--accent-tint);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 9px 12px;
+    margin-block: 10px;
+    font-size: 13px;
+  }
+  .bulkbar strong { font-family: "IBM Plex Mono", monospace; }
+  .bulkbar .confirm { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+
+  .count-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: var(--ink-soft); font-size: 12.5px; margin: 10px 0 6px;
+  }
+
+  .rows { display: flex; flex-direction: column; gap: 1px; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.6fr auto auto;
+    gap: 14px;
+    align-items: center;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule);
+    padding: 11px 14px;
+  }
+  .row + .row { margin-top: -1px; }
+  .row.conf-high { border-left-color: var(--conf-high); }
+  .row.conf-medium { border-left-color: var(--conf-medium); }
+  .row.conf-low { border-left-color: var(--conf-low); }
+  .row.decided { opacity: 0.62; }
+
+  .col-family .root { font-family: "Spectral", serif; font-size: 16px; font-weight: 600; }
+  .col-family .fid { color: var(--ink-faint); font-size: 11.5px; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 5px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px; letter-spacing: 0.02em;
+    padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  .badge.type-member { background: var(--rule); }
+  .badge.type-family { background: var(--rule); font-weight: 600; }
+  .badge.conf-high { color: var(--conf-high); background: var(--conf-high-tint); border-color: transparent; }
+  .badge.conf-medium { color: var(--conf-medium); background: var(--conf-medium-tint); border-color: transparent; }
+  .badge.conf-low { color: var(--conf-low); background: var(--conf-low-tint); border-color: transparent; }
+
+  .col-detail .what { font-size: 13px; margin-bottom: 3px; }
+  .col-detail .what .arrow { color: var(--ink-faint); margin: 0 3px; }
+  .col-detail .why { font-family: "Spectral", serif; font-style: italic; color: var(--ink-soft); font-size: 13px; }
+
+  .status-pill {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap; text-align: center;
+  }
+  .status-pill.pending { background: var(--rule); color: var(--ink-soft); }
+  .status-pill.approved { background: var(--conf-high-tint); color: var(--conf-high); }
+  .status-pill.rejected { background: var(--reject-tint); color: var(--reject); }
+
+  .row-actions { display: flex; gap: 6px; }
+
+  .pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 22px; color: var(--ink-soft); font-size: 13px; }
+
+  .empty { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
+  .empty .greek { font-size: 20px; color: var(--ink); }
+
+  footer.note { max-width: 1200px; margin: 30px auto 0; color: var(--ink-faint); font-size: 12px; border-top: 1px solid var(--rule); padding-top: 12px; }
+
+  @media (max-width: 760px) {
+    .row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .row-actions { justify-content: flex-start; }
+  }
+</style>
+
+<header class="page">
+  <div>
+    <h1>Derivation Ledger</h1>
+    <div class="sub">Opus 5's flagged corrections to GlossaLearn's derivational family tree — every merge, split, reparent, and relabel it wasn't confident enough to apply on its own.</div>
+  </div>
+</header>
+
+<main>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search root, lemma, or reasoning…" aria-label="Search">
+    <select id="f-status" aria-label="Status">
+      <option value="pending" selected>Pending review</option>
+      <option value="all">All statuses</option>
+      <option value="approved">Approved</option>
+      <option value="rejected">Rejected</option>
+    </select>
+    <select id="f-type" aria-label="Type">
+      <option value="all">Member + family</option>
+      <option value="member">Member-level</option>
+      <option value="family">Family-level</option>
+    </select>
+    <select id="f-action" aria-label="Action"><option value="all">Every action</option></select>
+    <select id="f-conf" aria-label="Confidence">
+      <option value="all">Any confidence</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+  </div>
+
+  <div id="bulkbar-slot"></div>
+  <div class="count-row">
+    <span id="count-label">Loading…</span>
+    <span id="db-note"></span>
+  </div>
+
+  <div class="rows" id="rows"></div>
+  <div class="pager" id="pager" hidden>
+    <button class="ghost" id="prev">← Prev</button>
+    <span id="page-label" class="mono"></span>
+    <button class="ghost" id="next">Next →</button>
+  </div>
+</main>
+
+<footer class="note">Data from a Claude Opus 5 batch review of 5,670 derivational families (Sept 2026). Approving here does not write to the database — decisions are recorded for Claude to apply in a follow-up pass.</footer>
+
+<script>
+(function () {
+  "use strict";
+  const PAGE_SIZE = 60;
+  let ALL = [];
+  let decisions = new Map(); // id -> "approved" | "rejected"
+  let page = 0;
+  let db = null;
+
+  const els = {
+    tiles: document.getElementById("tiles"),
+    rows: document.getElementById("rows"),
+    q: document.getElementById("q"),
+    fStatus: document.getElementById("f-status"),
+    fType: document.getElementById("f-type"),
+    fAction: document.getElementById("f-action"),
+    fConf: document.getElementById("f-conf"),
+    bulkSlot: document.getElementById("bulkbar-slot"),
+    countLabel: document.getElementById("count-label"),
+    dbNote: document.getElementById("db-note"),
+    pager: document.getElementById("pager"),
+    prev: document.getElementById("prev"),
+    next: document.getElementById("next"),
+    pageLabel: document.getElementById("page-label"),
+  };
+
+  function describe(item) {
+    if (item.type === "member") {
+      if (item.action === "remove") return { what: `Remove <span class="greek">${esc(item.lemma)}</span>` };
+      if (item.action === "reparent") return { what: `Reparent <span class="greek">${esc(item.lemma)}</span><span class="arrow">→</span><span class="greek">${esc(item.new_parent_lemma || "root")}</span>` };
+      if (item.action === "change_relation") return { what: `Relabel <span class="greek">${esc(item.lemma)}</span><span class="arrow">→</span>“${esc(item.new_relation || "")}”` };
+    } else {
+      if (item.action === "rename") return { what: `Rename family${item.new_root ? ` → root <span class="greek">${esc(item.new_root)}</span>` : ""}${item.new_label ? ` “${esc(item.new_label)}”` : ""}` };
+      if (item.action === "merge") return { what: `Merge into <span class="greek">${esc(item.merge_target_root || "?")}</span> <span class="mono">#${item.merge_target_family_id}</span>` };
+      if (item.action === "split") return { what: `Split off <span class="greek">${esc(item.split_lemma || "?")}</span> and its descendants` };
+      if (item.action === "link") return { what: `Link to <span class="greek">${esc(item.link_target_root || "?")}</span> <span class="mono">#${item.link_target_family_id}</span>` };
+      if (item.action === "unlink") return { what: `Remove link to <span class="mono">#${item.link_target_family_id}</span>` };
+    }
+    return { what: item.action };
+  }
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function searchText(item) {
+    return [item.family_root, item.lemma, item.reason, item.new_root, item.new_label, item.new_relation, item.merge_target_root, item.link_target_root, item.split_lemma]
+      .filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function currentFilters() {
+    return {
+      q: els.q.value.trim().toLowerCase(),
+      status: els.fStatus.value,
+      type: els.fType.value,
+      action: els.fAction.value,
+      conf: els.fConf.value,
+    };
+  }
+
+  function statusOf(item) {
+    return decisions.get(item.id) || "pending";
+  }
+
+  function applyFilters() {
+    const f = currentFilters();
+    return ALL.filter((item) => {
+      if (f.status !== "all" && statusOf(item) !== f.status) return false;
+      if (f.type !== "all" && item.type !== f.type) return false;
+      if (f.action !== "all" && item.action !== f.action) return false;
+      if (f.conf !== "all" && item.confidence !== f.conf) return false;
+      if (f.q && !searchText(item).includes(f.q)) return false;
+      return true;
+    });
+  }
+
+  function renderTiles() {
+    const total = ALL.length;
+    let approved = 0, rejected = 0;
+    for (const item of ALL) {
+      const s = statusOf(item);
+      if (s === "approved") approved++;
+      else if (s === "rejected") rejected++;
+    }
+    const pending = total - approved - rejected;
+    els.tiles.innerHTML = `
+      <div class="tile"><div class="n">${total.toLocaleString()}</div><div class="l">Flagged proposals</div></div>
+      <div class="tile pending"><div class="n">${pending.toLocaleString()}</div><div class="l">Pending review</div></div>
+      <div class="tile approved"><div class="n">${approved.toLocaleString()}</div><div class="l">Approved</div></div>
+      <div class="tile rejected"><div class="n">${rejected.toLocaleString()}</div><div class="l">Rejected</div></div>
+    `;
+  }
+
+  function populateActionFilter() {
+    const actions = Array.from(new Set(ALL.map((i) => i.action))).sort();
+    els.fAction.innerHTML = '<option value="all">Every action</option>' +
+      actions.map((a) => `<option value="${a}">${a.replace("_", " ")}</option>`).join("");
+  }
+
+  let pendingBulk = null; // {ids, decision}
+
+  function renderBulkBar(filtered) {
+    const f = currentFilters();
+    const stillPending = filtered.filter((i) => statusOf(i) === "pending");
+    const hasNarrowing = f.q || f.type !== "all" || f.action !== "all" || f.conf !== "all";
+    if (!hasNarrowing || stillPending.length === 0) {
+      els.bulkSlot.innerHTML = "";
+      pendingBulk = null;
+      return;
+    }
+    if (pendingBulk) {
+      els.bulkSlot.innerHTML = `
+        <div class="bulkbar">
+          <span>Confirm: <strong>${pendingBulk.decision}</strong> all <strong>${pendingBulk.ids.length.toLocaleString()}</strong> filtered items?</span>
+          <div class="confirm">
+            <button class="small ${pendingBulk.decision === "approved" ? "primary" : "danger-outline"}" id="bulk-confirm">Yes, ${pendingBulk.decision}</button>
+            <button class="small ghost" id="bulk-cancel">Cancel</button>
+          </div>
+        </div>`;
+      document.getElementById("bulk-confirm").onclick = () => commitDecision(pendingBulk.ids, pendingBulk.decision);
+      document.getElementById("bulk-cancel").onclick = () => { pendingBulk = null; renderAll(); };
+    } else {
+      els.bulkSlot.innerHTML = `
+        <div class="bulkbar">
+          <span><strong>${stillPending.length.toLocaleString()}</strong> pending items match the current filter.</span>
+          <div class="confirm">
+            <button class="small primary" id="bulk-approve">Approve all filtered</button>
+            <button class="small danger-outline" id="bulk-reject">Reject all filtered</button>
+          </div>
+        </div>`;
+      document.getElementById("bulk-approve").onclick = () => { pendingBulk = { ids: stillPending.map((i) => i.id), decision: "approved" }; renderAll(); };
+      document.getElementById("bulk-reject").onclick = () => { pendingBulk = { ids: stillPending.map((i) => i.id), decision: "rejected" }; renderAll(); };
+    }
+  }
+
+  function renderRows(filtered) {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    page = Math.min(page, totalPages - 1);
+    const slice = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+    els.countLabel.textContent = filtered.length === ALL.length
+      ? `${filtered.length.toLocaleString()} proposals`
+      : `${filtered.length.toLocaleString()} of ${ALL.length.toLocaleString()} proposals match`;
+
+    if (slice.length === 0) {
+      els.rows.innerHTML = `<div class="empty"><div class="greek">οὐδέν εὑρέθη</div>Nothing matches this filter.</div>`;
+      els.pager.hidden = true;
+      return;
+    }
+
+    els.rows.innerHTML = slice.map((item) => {
+      const d = describe(item);
+      const st = statusOf(item);
+      return `
+        <div class="row conf-${item.confidence} ${st !== "pending" ? "decided" : ""}" data-id="${item.id}">
+          <div class="col-family">
+            <div class="root greek">${esc(item.family_root || "—")}</div>
+            <div class="fid mono">family #${item.family_id}</div>
+          </div>
+          <div class="badges">
+            <span class="badge type-${item.type}">${item.type}</span>
+            <span class="badge">${esc(item.action.replace("_", " "))}</span>
+            <span class="badge conf-${item.confidence}">${item.confidence}</span>
+          </div>
+          <div class="col-detail">
+            <div class="what">${d.what}</div>
+            <div class="why">“${esc(item.reason)}”</div>
+          </div>
+          <div class="status-pill ${st}">${st}</div>
+          <div class="row-actions">
+            <button class="small primary" data-act="approved" ${st === "approved" ? "disabled" : ""}>Approve</button>
+            <button class="small danger-outline" data-act="rejected" ${st === "rejected" ? "disabled" : ""}>Reject</button>
+          </div>
+        </div>`;
+    }).join("");
+
+    els.rows.querySelectorAll(".row").forEach((rowEl) => {
+      const id = rowEl.dataset.id;
+      rowEl.querySelectorAll("button[data-act]").forEach((btn) => {
+        btn.addEventListener("click", () => commitDecision([id], btn.dataset.act));
+      });
+    });
+
+    els.pager.hidden = totalPages <= 1;
+    els.pageLabel.textContent = `page ${page + 1} of ${totalPages}`;
+  }
+
+  function renderAll() {
+    renderTiles();
+    const filtered = applyFilters();
+    renderBulkBar(filtered);
+    renderRows(filtered);
+  }
+
+  function saveLocalFallback() {
+    try {
+      localStorage.setItem("derivation-ledger-decisions", JSON.stringify(Array.from(decisions.entries())));
+    } catch (e) { /* private browsing / storage blocked — decisions stay in-memory only */ }
+  }
+
+  function loadLocalFallback() {
+    try {
+      const raw = localStorage.getItem("derivation-ledger-decisions");
+      if (raw) decisions = new Map(JSON.parse(raw));
+    } catch (e) { /* ignore */ }
+  }
+
+  async function commitDecision(ids, decision) {
+    pendingBulk = null;
+    // optimistic local update
+    for (const id of ids) decisions.set(id, decision);
+    page = 0;
+    renderAll();
+    if (db) {
+      try {
+        await db.collection("decisions").add({ ids, decision, ts: Date.now() });
+      } catch (e) {
+        els.dbNote.textContent = "Couldn't save — will retry on reload.";
+      }
+    } else {
+      saveLocalFallback();
+    }
+  }
+
+  function foldDecisions(docs) {
+    const entries = docs
+      .map((d) => d.data())
+      .filter(Boolean)
+      .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const map = new Map();
+    for (const entry of entries) {
+      if (!Array.isArray(entry.ids)) continue;
+      for (const id of entry.ids) map.set(id, entry.decision);
+    }
+    return map;
+  }
+
+  [els.q, els.fStatus, els.fType, els.fAction, els.fConf].forEach((el) => {
+    el.addEventListener("input", () => { page = 0; pendingBulk = null; renderAll(); });
+  });
+  els.prev.addEventListener("click", () => { page = Math.max(0, page - 1); renderRows(applyFilters()); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  els.next.addEventListener("click", () => { page = page + 1; renderRows(applyFilters()); window.scrollTo({ top: 0, behavior: "smooth" }); });
+
+  async function boot() {
+    const res = await fetch("review_data.json");
+    ALL = await res.json();
+    populateActionFilter();
+    renderAll();
+
+    if (window.claude && typeof window.claude.use === "function") {
+      try {
+        db = await window.claude.use("db");
+      } catch (e) {
+        db = null;
+      }
+      if (db) {
+        db.collection("decisions").orderBy("ts").onSnapshot(
+          (snap) => {
+            decisions = foldDecisions(snap.docs);
+            renderAll();
+          },
+          () => { els.dbNote.textContent = "Live sync unavailable this session."; }
+        );
+      } else {
+        loadLocalFallback();
+        renderAll();
+        els.dbNote.textContent = "Decisions save to this browser only (no live sync).";
+      }
+    } else {
+      loadLocalFallback();
+      renderAll();
+    }
+  }
+
+  boot();
+})();
+</script>

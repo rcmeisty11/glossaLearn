@@ -27,3 +27,9 @@ datasets-backup
 .env
 .admin_token
 .last_sync_id
+
+# Family audit tooling
+.audit_venv/
+family_audit/*.jsonl
+family_audit/*.json
+.serve_venv/

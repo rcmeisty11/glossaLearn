@@ -489,6 +489,60 @@ function WorkSelector({ authors, works, selectedAuthors, selectedWorks, onToggle
    ═══════════════════════════════════════════════════ */
 const POS_LIST = ["noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction", "particle", "article"];
 
+/* Part-of-speech filter for the radial view. Multiple chips can be active at
+   once, and an empty selection means "show everything" — the same convention
+   the word list uses. Only parts of speech actually present in this family get
+   a chip, so the bar stays short instead of listing nine dead options. */
+function VizPosFilter({ members, filter, onToggle, onClear }) {
+  const counts = useMemo(() => {
+    const c = new Map();
+    (members || []).forEach(m => {
+      const p = m.pos || "";
+      if (p) c.set(p, (c.get(p) || 0) + 1);
+    });
+    return c;
+  }, [members]);
+
+  const present = POS_LIST.filter(p => counts.has(p));
+  if (present.length < 2) return null;   // nothing meaningful to filter between
+
+  return (
+    <div data-tour="tour-posfilter"
+      style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+      <span style={{ fontSize: 11, color: T.dim }}>Show:</span>
+      {present.map(pos => {
+        const active = filter.has(pos);
+        const clr = POS_CLR[pos] || T.dim;
+        return (
+          <button key={pos} onClick={() => onToggle(pos)}
+            title={`${counts.get(pos)} ${pos}${counts.get(pos) === 1 ? "" : "s"} in this family`}
+            style={{
+              padding: "2px 8px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+              letterSpacing: .3, cursor: "pointer", fontFamily: T.font,
+              background: active ? clr : "transparent",
+              color: active ? T.bg : clr,
+              border: `1px solid ${active ? clr : T.borderL}`,
+              // Once anything is picked, unpicked chips recede so the
+              // active selection reads at a glance.
+              opacity: active || filter.size === 0 ? 1 : 0.5,
+            }}>
+            {pos}
+            <span style={{ opacity: .65, marginLeft: 4, fontFamily: T.mono }}>{counts.get(pos)}</span>
+          </button>
+        );
+      })}
+      {filter.size > 0 && (
+        <button onClick={onClear}
+          style={{
+            padding: "2px 8px", borderRadius: 3, fontSize: 11, fontWeight: 600,
+            cursor: "pointer", fontFamily: T.font, background: "transparent",
+            color: T.dim, border: `1px solid ${T.borderL}`,
+          }}>clear</button>
+      )}
+    </div>
+  );
+}
+
 function StyledInput({ searchQ, onSearchChange, placeholder }) {
   return (
     <input value={searchQ} onChange={e => onSearchChange(e.target.value)}
@@ -582,15 +636,224 @@ function WordList({ vocab, selectedId, onSelect, sort, onSortChange, searchQ, on
 }
 
 /* ═══════════════════════════════════════════════════
+   RADIAL LAYOUT GEOMETRY
+   Cards are wide and short (NODE_W × NODE_H), so the room two
+   neighbours need depends on where they sit on the ring: side by
+   side at the top/bottom they need the full card width, stacked at
+   the left/right they need only its height. Allocating every slot
+   the worst case (what the old layout did) wasted ~135px per slot
+   and inflated the whole circle. These helpers size each slot to
+   what it actually needs, which packs the ring 30–60% tighter.
+   ═══════════════════════════════════════════════════ */
+
+const NODE_W = 132, NODE_H = 54;   // minimum card size (was 145 × 58)
+const MAX_NODE_W = 196;            // how wide a card may grow for a long lemma
+const DEF_LINE_H = 12;             // extra height a second definition line costs
+const LEMMA_MIN_RATIO = 0.74;      // a lemma may shrink this far before eliding
+const SLOT_PAD = 20;               // breathing room between neighbours
+const CHILD_GAP = 84;              // depth-to-depth spacing (was 178)
+const FOCUS_PULL = 120;            // how far an expanded card steps out of its ring
+const FOCUS_ARC = 3.0;             // angular wedge the expanded branch may open into
+                                   // (a cap only crowded fans ever reach; wider
+                                   // than this and the fan wraps back past the parent)
+const BAND_GAP = 16;               // clearance added between concentric bands
+const BAND_CAP = 18;               // ring-1 children before we split into bands
+const MIN_LABEL_PX = 11;           // labels never render smaller than this on screen
+
+/** Tangential half-extent of a w×h card sitting at ring angle `t`.
+ *  This is the card rectangle's support function along the ring tangent. */
+const tangentialHalf = (t, w, h) =>
+  (w / 2) * Math.abs(Math.sin(t)) + (h / 2) * Math.abs(Math.cos(t));
+
+/** Lay out `count` cards on one ring, giving each an angular slot
+ *  proportional to the room it actually needs at its own angle.
+ *  Iterates because a slot's need depends on the angle it lands at. */
+function layoutRing(count, w, h, minR) {
+  if (count <= 0) return { R: minR, angles: [] };
+  let angles = Array.from({ length: count }, (_, i) => (i / count) * 2 * Math.PI - Math.PI / 2);
+  let R = minR;
+  for (let it = 0; it < 12; it++) {
+    const needs = angles.map(a => 2 * tangentialHalf(a, w, h) + SLOT_PAD);
+    const total = needs.reduce((s, n) => s + n, 0);
+    R = Math.max(total / (2 * Math.PI), minR);
+    let acc = 0;
+    angles = needs.map(nd => {
+      const mid = acc + nd / 2;
+      acc += nd;
+      return (mid / total) * 2 * Math.PI - Math.PI / 2;
+    });
+  }
+  return { R, angles };
+}
+
+/** Split ring-1 into concentric bands once it outgrows a single ring.
+ *  A 30-child ring needs R≈924 as one circle but only R≈460/600 as two,
+ *  which is what keeps large families legible without zooming out. */
+function layoutBands(count, w, h, minR) {
+  const bandCount = Math.max(1, Math.ceil(count / BAND_CAP));
+  const per = Math.ceil(count / bandCount);
+  const slots = [];       // { R, angle, band } per node, in ring-1 order
+  let maxR = minR;
+  let prevR = 0;
+  for (let b = 0; b < bandCount; b++) {
+    const n = Math.min(per, count - b * per);
+    if (n <= 0) break;
+    const { R, angles } = layoutRing(n, w, h, minR);
+    // Bands are separated *radially*, and on the horizontal axis the radial
+    // direction runs along the card's width — so clearance is w, not h.
+    // (Using h here let neighbouring bands overlap on the left/right flanks.)
+    const bandR = b === 0 ? R : Math.max(R, prevR + w + BAND_GAP);
+    prevR = bandR;
+    // Offset alternate bands by half a slot so cards don't line up radially
+    const stagger = b % 2 === 1 ? Math.PI / n : 0;
+    angles.forEach(a => slots.push({ R: bandR, angle: a + stagger, band: b }));
+    maxR = Math.max(maxR, bandR);
+  }
+  return { slots, maxR, bandCount };
+}
+
+/** Wrap `text` to at most `maxLines` lines of ~`perLine` chars. */
+/* ── Text fitting ──────────────────────────────────────────────────────
+   SVG text neither wraps nor clips, so a long lemma just runs past its card.
+   Measuring every label on every zoom would be far too slow, so each distinct
+   string is measured once at 100px and cached as a width-per-font-pixel;
+   width is linear in font size, so every later decision is arithmetic. The
+   cache is module-level, so redraws and family switches reuse it. */
+const _textUnitCache = new Map();
+function textUnitWidth(svgNode, text, weight, style) {
+  if (!text) return 0;
+  const key = `${weight}|${style}|${text}`;
+  const hit = _textUnitCache.get(key);
+  if (hit !== undefined) return hit;
+  let probe = svgNode && svgNode.__fitProbe;
+  if (svgNode && !probe) {
+    probe = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    probe.setAttribute("visibility", "hidden");
+    probe.setAttribute("font-size", "100px");
+    probe.setAttribute("font-family", T.font);
+    svgNode.appendChild(probe);
+    svgNode.__fitProbe = probe;
+  }
+  let unit;
+  try {
+    probe.setAttribute("font-weight", weight);
+    probe.setAttribute("font-style", style);
+    probe.textContent = text;
+    unit = probe.getComputedTextLength() / 100;
+  } catch {
+    unit = text.length * 0.0055 * 100 / 100;   // pre-layout fallback
+  }
+  if (!unit || !isFinite(unit)) unit = text.length * 0.55;
+  _textUnitCache.set(key, unit);
+  return unit;
+}
+
+/* Real vertical metrics for a string, per font pixel: how far it reaches above
+   the baseline and how tall its box is. Guessing these is what kept accented
+   lemmas poking out of their cards — ά/ῖ/ΐ reach much higher than a plain
+   line-height constant assumes, and the ratio differs per string. */
+const _textBoxCache = new Map();
+function textBoxMetrics(svgNode, text, weight, style) {
+  if (!text) return { asc: 0.98, lh: 1.30 };
+  const key = `${weight}|${style}|${text}`;
+  const hit = _textBoxCache.get(key);
+  if (hit !== undefined) return hit;
+  let m = { asc: 0.98, lh: 1.30 };
+  try {
+    textUnitWidth(svgNode, text, weight, style);   // ensures the probe exists and holds `text`
+    const probe = svgNode.__fitProbe;
+    const b = probe.getBBox();
+    if (b && b.height > 0) m = { asc: -b.y / 100, lh: b.height / 100 };
+  } catch { /* keep the fallback */ }
+  _textBoxCache.set(key, m);
+  return m;
+}
+
+/* Record a row's measured metrics on the element, so the stack layout can run
+   on every zoom without touching the DOM for measurements. */
+function tagRowMetrics(svgNode, sel, weight, style) {
+  const m = textBoxMetrics(svgNode, sel.text(), weight, style);
+  sel.attr("data-asc", m.asc).attr("data-lh", m.lh);
+  return m;
+}
+
+/* Trim `text` until it fits `maxW` at `size`, marking the cut with an ellipsis. */
+function ellipsizeToWidth(svgNode, text, maxW, size, weight, style) {
+  if (!text) return "";
+  if (textUnitWidth(svgNode, text, weight, style) * size <= maxW) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const cand = text.slice(0, mid).trimEnd() + "\u2026";
+    if (textUnitWidth(svgNode, cand, weight, style) * size <= maxW) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo).trimEnd() + "\u2026" : "\u2026";
+}
+
+/* Word-wrap `text` into at most `maxLines` lines that each fit `maxW` at
+   `size`. A single word too wide to fit (a long Greek compound has no spaces
+   to break on) is elided rather than left hanging over the edge. */
+function wrapToWidth(svgNode, text, maxW, size, weight, style, maxLines) {
+  const clean = (text || "").replace(/,\s*$/, "").trim();
+  if (!clean) return [];
+  const fits = s => textUnitWidth(svgNode, s, weight, style) * size <= maxW;
+  const lines = [];
+  let cur = "";
+  for (const word of clean.split(/\s+/)) {
+    if (lines.length >= maxLines) break;
+    const cand = cur ? cur + " " + word : word;
+    if (fits(cand)) { cur = cand; continue; }
+    if (cur) lines.push(cur);
+    cur = fits(word) ? word : ellipsizeToWidth(svgNode, word, maxW, size, weight, style);
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  if (lines.length > maxLines) lines.length = maxLines;
+  // Flag anything that did not make it in, so a clipped gloss reads as clipped.
+  const shownLen = lines.join(" ").replace(/\u2026$/, "").length;
+  if (lines.length && shownLen < clean.length) {
+    const last = lines[lines.length - 1];
+    if (!last.endsWith("\u2026")) {
+      lines[lines.length - 1] = ellipsizeToWidth(svgNode, last + "\u2026", maxW, size, weight, style);
+    }
+  }
+  return lines;
+}
+
+function wrapLines(text, perLine, maxLines) {
+  const words = (text || "").replace(/,\s*$/, "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const word of words) {
+    if (!cur) { cur = word; continue; }
+    if ((cur + " " + word).length <= perLine) cur += " " + word;
+    else { lines.push(cur); cur = word; if (lines.length === maxLines) break; }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) {
+    lines[maxLines - 1] = lines[maxLines - 1].replace(/[.,;:]?$/, "") + "…";
+  }
+  return lines;
+}
+
+/* ═══════════════════════════════════════════════════
    FAMILY TREE — D3 radial layout
    Root at center (gold ring), members radiating out.
    Each node: pill shape with lemma, POS color dot, short def.
    Selected word highlighted with glow.
-   Non-overlapping layout with collision detection.
+   Hover lifts a card into a rich expanded panel; zooming out
+   degrades cards to chips and counter-scales labels so they stay
+   readable instead of collapsing to sub-pixel text.
    ═══════════════════════════════════════════════════ */
-function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, onReparent, linkedFamilies, width, height }) {
+function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, onReparent, posFilter, linkedFamilies, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
+  const lodRef = useRef(null);          // set by the draw effect; called on every zoom
+  const hoverCleanupRef = useRef(null); // clears any pending hover timer on redraw
+  const fittedKeyRef = useRef(null);    // which layout the current zoom was fitted to
+  const centerMemberIdRef = useRef(null); // member to recentre on after the next draw
+  const centerTimerRef = useRef(null);    // how long that intent outranks auto-fit
+  const centerTargetRef = useRef(null);   // transform a centring transition is heading to
   const [expandedCrossIds, setExpandedCrossIds] = useState(new Set()); // member IDs whose linked families are expanded
   const [showExplicitLinked, setShowExplicitLinked] = useState(false); // root badge: toggle explicit linked families
 
@@ -608,6 +871,9 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       .scaleExtent([0.15, 3])
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
+        // Labels are sized in world units, so without this they shrink
+        // with the transform; applyLOD re-sizes them to stay legible.
+        if (lodRef.current) lodRef.current(event.transform.k);
       });
     svg.call(zoom);
     svg.style("cursor", "grab");
@@ -627,6 +893,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       g = svg.append("g").attr("class", "family-content");
     }
     g.selectAll("*").remove();
+    const svgNode = svg.node();   // used by the text-measuring helpers
 
     if (!family?.members?.length) {
       // Reset zoom to center when no family
@@ -637,20 +904,60 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       return;
     }
 
-    const members = [...family.members];
-    let rootIdx = members.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...members.filter(x => x.relation === "root").map(x => x.total_occurrences)));
+    const allMembers = [...family.members];
+    let rootIdx = allMembers.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...allMembers.filter(x => x.relation === "root").map(x => x.total_occurrences)));
     if (rootIdx < 0) rootIdx = 0;
-    const root = members[rootIdx];
-    const others = members.filter((_, i) => i !== rootIdx);
+    const root = allMembers[rootIdx];
 
-    const nW = 145, nH = 58; // node dimensions
-    const gap = 150;
+    // ── Part-of-speech filter ──
+    // Filtering here rather than at draw time means the hidden cards give up
+    // their slots: the circle repacks smaller and auto-fit zooms back in, so
+    // narrowing to one part of speech actually buys legibility.
+    // The root always survives — it is the hub every ring hangs off.
+    const posOn = posFilter && posFilter.size > 0 ? posFilter : null;
+    const allById = new Map(allMembers.map(m => [m.id, m]));
+    const members = posOn
+      ? allMembers.filter(m => m.id === root.id || posOn.has(m.pos || ""))
+      : allMembers;
+    const others = members.filter(m => m.id !== root.id);
+
+    // ── Card size ──
+    // Cards stay uniform across the family so the slot packing below stays
+    // valid, but the family sizes them to its own content: wide enough for its
+    // longest lemma (Greek compounds like ἀντιπεριίστημι have no spaces to wrap
+    // on, so width is the only way to fit them) and tall enough for a
+    // definition that needs a second line.
+    let needW = NODE_W;
+    members.forEach(m => {
+      const isR = m.id === root.id;
+      const u = textUnitWidth(svgNode, m.lemma || "", isR ? 700 : 500, "normal");
+      needW = Math.max(needW, u * (isR ? 18 : 15) + 22);
+    });
+    const nW = Math.min(Math.ceil(needW), MAX_NODE_W);
+    const defLines = members.some(m =>
+      wrapToWidth(svgNode, m.short_def, nW - 12, 11, 400, "italic", 2).length > 1) ? 2 : 1;
+    const nH = NODE_H + (defLines - 1) * DEF_LINE_H;
 
     // ── Build parent/child maps ──
     const memberById = new Map(members.map(m => [m.id, m]));
+    // Hiding a word must not take its children with it: walk up through any
+    // filtered-out ancestors to the nearest one still on screen (the root, at
+    // worst), so a surviving branch stays attached instead of disappearing.
+    const visibleParent = (m) => {
+      let cur = m.parent_lemma_id;
+      const seen = new Set([m.id]);
+      while (cur && !seen.has(cur)) {
+        if (memberById.has(cur)) return cur;
+        seen.add(cur);
+        const up = allById.get(cur);
+        if (!up) break;
+        cur = up.parent_lemma_id;
+      }
+      return root.id;
+    };
     const childrenOf = new Map(); // parent_id → [member, ...]
     others.forEach(m => {
-      const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : root.id;
+      const pid = visibleParent(m);
       if (!childrenOf.has(pid)) childrenOf.set(pid, []);
       childrenOf.get(pid).push(m);
     });
@@ -697,23 +1004,41 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     ring1.sort((a, b) => dtRank(a.derivation_type) - dtRank(b.derivation_type) || (b.total_occurrences || 0) - (a.total_occurrences || 0));
 
     // ── Ring 1: direct children of root ──
-    const ring1Radius = Math.max(ring1.length * (nW * 0.3 + gap) / (2 * Math.PI), 170);
+    // Slots are sized to each card's real tangential extent and split
+    // into concentric bands past BAND_CAP, so the circle stays compact.
+    // The 150 floor was tuned for a 132px card. A wider card needs a wider
+    // ring: at small child counts the ring's arc noticeably exceeds its chord,
+    // and cards that tile the arc can still overlap across it. 1.14×width is
+    // the smallest multiple that stays clear at every card size and ring size
+    // in the data — and at the default 132 it still evaluates to 150.
+    const { slots: ring1Slots, maxR: ring1MaxR, bandCount } =
+      layoutBands(ring1.length, nW, nH, Math.max(150, Math.round(nW * 1.14)));
+    const ring1Radius = ring1MaxR;
 
-    // Assign angles to ring-1 nodes
+    // Assign angles + radii to ring-1 nodes
     const ring1Angles = new Map();
+    const ring1Radii = new Map();
+    const ring1Bands = new Map();
     ring1.forEach((m, i) => {
-      ring1Angles.set(m.id, (i / ring1.length) * 2 * Math.PI - Math.PI / 2);
+      const slot = ring1Slots[i] || { R: ring1Radius, angle: 0, band: 0 };
+      ring1Angles.set(m.id, slot.angle);
+      ring1Radii.set(m.id, slot.R);
+      ring1Bands.set(m.id, slot.band);
     });
 
-    // ── Compute contiguous derivation type sectors ──
-    const slotAngle = ring1.length > 0 ? (2 * Math.PI) / ring1.length : 0;
+    // ── Compute contiguous derivation type sectors, per band ──
+    // ring1 is pre-sorted by derivation type, so each band holds a
+    // contiguous run of types and can carry its own sector arcs.
     const sectors = [];
     let si = 0;
     while (si < ring1.length) {
       const dt = ring1[si].derivation_type || null;
+      const band = ring1Bands.get(ring1[si].id);
       let ei = si;
-      while (ei < ring1.length && (ring1[ei].derivation_type || null) === dt) ei++;
-      sectors.push({ dt, startIdx: si, endIdx: ei - 1 });
+      while (ei < ring1.length
+             && (ring1[ei].derivation_type || null) === dt
+             && ring1Bands.get(ring1[ei].id) === band) ei++;
+      sectors.push({ dt, band, startIdx: si, endIdx: ei - 1 });
       si = ei;
     }
 
@@ -722,36 +1047,102 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     posMap.set(root.id, { x: 0, y: 0 });
 
     // Place ring-1 nodes
+    // An expanded card steps outward out of its ring. Two things fall out of
+    // that: the edges to its children no longer cross the ring of siblings it
+    // used to sit in, and the fan opens into the region beyond, which in focus
+    // mode is empty — every other branch is hidden (drawNode returns early on
+    // scale <= 0), so the only cards out there are this branch's own.
+    const focusPull = (id) =>
+      (id === focusId && (childrenOf.get(id) || []).length > 0) ? FOCUS_PULL : 0;
     ring1.forEach(m => {
       const angle = ring1Angles.get(m.id);
-      const r = ring1Radius;
+      // Step out from the *outermost* ring-1 band, not this card's own: ring 1
+      // is banded ~148px apart, so pulling 120 off an inner band would land the
+      // card just short of the next one, on top of the siblings sitting there.
+      const r = focusPull(m.id) ? ring1Radius + FOCUS_PULL : ring1Radii.get(m.id);
       posMap.set(m.id, { x: Math.cos(angle) * r, y: Math.sin(angle) * r });
     });
 
-    // Place deeper nodes: fan out behind their parent, along the parent's radial angle
-    const placeChildren = (parentId, parentAngle, parentR, depth) => {
+    /* Place deeper nodes, fanning out around the parent's radial angle.
+       Each subtree owns an angular wedge and spreads only inside it, so two
+       cousin fans cannot reach into each other however deep the tree goes.
+       The expanded branch gets a wide wedge because the region beyond ring 1 is
+       empty in focus mode; a fan only pushes further out when its own wedge
+       genuinely cannot hold it, which is far less often than a fixed narrow cap
+       implied — that cap was guarding against cards that are not drawn. */
+    const placeChildren = (parentId, parentAngle, parentR, depth, wedge) => {
       const kids = childrenOf.get(parentId) || [];
       if (kids.length === 0) return;
       const expanded = focusId && (parentId === focusId || focusDescendants.has(parentId));
-      const childR = parentR + (expanded ? (nH + gap * 0.8) : 70);
-      // Spread children in a small arc centered on parent's angle
-      const arcSpan = expanded ? Math.min(kids.length * 0.25, 1.2) : Math.min(kids.length * 0.08, 0.4);
+      let slots;
+      if (expanded && kids.length > 1) {
+        // Expanded children are full-size cards (getNodeScale gives focus
+        // descendants 1.0), so they need real clearance between them: spread
+        // them across the wedge this subtree owns, and only when the wedge
+        // cannot hold them all split into concentric bands, like ring 1 does.
+        // Each band sits further out and so holds more than the last, which
+        // keeps the radius growing ~sqrt(n) rather than linearly — fans here
+        // reach 502 children.
+        const extentAt = a => 2 * tangentialHalf(a, nW, nH) + SLOT_PAD;
+        const need = Math.max(extentAt(parentAngle - wedge / 2),
+                              extentAt(parentAngle),
+                              extentAt(parentAngle + wedge / 2));
+        slots = [];
+        let r = parentR + nH + CHILD_GAP;
+        let placed = 0, band = 0;
+        while (placed < kids.length) {
+          // The wedge measures centre-to-centre, so the outermost cards would
+          // hang half their width past its edges and collide with the cousins
+          // next door. Spend only what is left after reserving that margin.
+          const usable = Math.max(0, wedge - need / r);
+          const capacity = Math.max(1, Math.floor((usable * r) / need) + 1);
+          const take = Math.min(capacity, kids.length - placed);
+          const arc = take > 1 ? Math.min((take - 1) * need / r, usable) : 0;
+          // Offset alternate bands by half a step so cards don't line up radially
+          const stagger = band % 2 === 1 && take > 1 ? arc / (take - 1) / 2 : 0;
+          for (let i = 0; i < take; i++) {
+            const off = take === 1 ? 0 : ((i / (take - 1)) - 0.5) * arc;
+            // Each child owns the gap to its neighbour, and its own children
+            // stay inside that — which is what keeps cousin fans apart.
+            slots.push({ angle: parentAngle + off + stagger, r,
+                         share: take > 1 ? arc / (take - 1) : wedge });
+          }
+          placed += take;
+          band++;
+          r += nW + BAND_GAP;     // radial clearance runs along the card's width
+        }
+      } else {
+        // Collapsed children are dots or hidden, so a tight fan costs nothing.
+        const childR = parentR + (expanded ? (nH + CHILD_GAP) : 62);
+        const arcSpan = expanded ? 0 : Math.min(kids.length * 0.08, 0.4);
+        slots = kids.map((_, i) => ({
+          angle: parentAngle + (kids.length === 1 ? 0 : ((i / (kids.length - 1)) - 0.5) * arcSpan),
+          r: childR,
+          share: kids.length > 1 ? arcSpan / (kids.length - 1) : (wedge || FOCUS_ARC),
+        }));
+      }
       kids.forEach((m, i) => {
-        const offset = kids.length === 1 ? 0 : (i / (kids.length - 1) - 0.5) * arcSpan;
-        const angle = parentAngle + offset;
-        const r = childR;
+        const { angle, r, share } = slots[i];
         posMap.set(m.id, { x: Math.cos(angle) * r, y: Math.sin(angle) * r });
-        placeChildren(m.id, angle, r, depth + 1);
+        placeChildren(m.id, angle, r, depth + 1, share);
       });
     };
     ring1.forEach(m => {
-      placeChildren(m.id, ring1Angles.get(m.id), ring1Radius, 2);
+      // The expanded branch opens into the empty outer region, so it gets a
+      // wide wedge; anything else is collapsed to dots and needs only its slot.
+      const wedge = m.id === focusId
+        ? FOCUS_ARC
+        : (2 * Math.PI) / Math.max(ring1.length, 1);
+      placeChildren(m.id, ring1Angles.get(m.id), ring1Radius + focusPull(m.id), 2, wedge);
     });
 
     // ── Determine node visual size ──
     // "scale" per node: 1.0 = full, smaller = collapsed
     const getNodeScale = (m) => {
-      if (m.id === root.id) return focusId ? 0.3 : 1.0;
+      // Keep the root a readable card even while a branch is focused — at 0.3
+      // it collapsed to a bare dot and the centre of a large tree read as empty,
+      // taking away the one fixed landmark you navigate by.
+      if (m.id === root.id) return focusId ? 0.8 : 1.0;
       if (ring1Ids.has(m.id)) {
         if (!focusId) return 1.0;
         return m.id === focusId ? 1.15 : 0.55;
@@ -771,23 +1162,248 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     // Track all drawn node groups for drag-and-drop targeting
     const drawnNodes = []; // { ng, m, x, y, scale, fId }
 
+    // Hover lookups. Seeded with the main family and extended as linked
+    // families are drawn, so hovering a linked node resolves its parent
+    // and derivative count too.
+    const lookupById = new Map(memberById);
+    const lookupChildren = new Map(childrenOf);
+
+    /* ── Hover: zoom the card in place ──────────────────────────────
+       An offset popover always covered whichever words sat beside the one
+       you were reading. Instead the card itself scales up about its own
+       centre and unfolds the rest of its entry, so the detail appears
+       exactly where you are already looking, nothing else shifts, and the
+       cards it grows over are its own immediate neighbours. It scales
+       against the zoom, so it reaches the same readable size from any
+       distance. */
+    let hoverTimer = null;
+    let hoverId = null;
+    let clickTimer = null;
+    let expanded = null;   // { el, x, y, rect, baseH }
+
+    const collapseExpanded = () => {
+      if (!expanded) return;
+      const { el, x, y, rect, baseH } = expanded;
+      expanded = null;
+      const sel = d3.select(el);
+      sel.select(".n-detail").remove();
+      sel.classed("is-expanded", false);
+      sel.interrupt().transition().duration(120)
+        .attr("transform", `translate(${x},${y})`);
+      rect.interrupt().attr("height", baseH);
+      // Forced: this restores the definition rows the expanded card hid, and
+      // the zoom has not changed, so the pass would otherwise be skipped.
+      if (lodRef.current) lodRef.current(d3.zoomTransform(svg.node()).k, true);
+    };
+
+    // Reset is unconditional: an interrupted transition or a missed
+    // mouseleave must never leave a card stuck open over its neighbours.
+    const clearHover = () => {
+      hoverId = null;
+      collapseExpanded();
+      g.selectAll(".edge").interrupt()
+        .attr("stroke", T.border)
+        .attr("stroke-width", function () { return d3.select(this).datum()?.baseW ?? 1; })
+        .attr("opacity", function () { return d3.select(this).datum()?.baseO ?? 0.5; });
+    };
+
+    const scheduleHoverHide = () => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(clearHover, 110);
+    };
+
+    /* Recentre the view on a point, keeping the current zoom (but never
+       below 1:1, so the word you asked for lands readable). */
+    const centerOn = (x, y) => {
+      if (!zoomRef.current) return;
+      const k = Math.max(d3.zoomTransform(svg.node()).k, 1);
+      const target = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-x, -y);
+      const prev = centerTargetRef.current;
+      const moving = prev && (performance.now() - prev.t0) < prev.dur;
+      // One double-click causes several redraws — the focus layout moves the
+      // word, then opening the details panel resizes the canvas — and each one
+      // asks to recentre again. Restarting a full ease every time is what made
+      // the motion stutter, so a re-target onto essentially the same place is
+      // ignored while the view is already on its way there.
+      if (moving && Math.abs(prev.x - target.x) < 4 && Math.abs(prev.y - target.y) < 4
+          && Math.abs(prev.k - target.k) < 0.01) return;
+      // A genuine re-target mid-flight eases *out* from the speed the view
+      // already has; easing in again from a standstill is what reads as a stall.
+      const dur = moving ? 300 : 520;
+      centerTargetRef.current = { x: target.x, y: target.y, k: target.k, t0: performance.now(), dur };
+      svg.transition("centre").duration(dur)
+        .ease(moving ? d3.easeCubicOut : d3.easeCubicInOut)
+        .call(zoomRef.current.transform, target);
+    };
+
+    const showHoverCard = (nodeEl, m, x, y) => {
+      if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+      if (hoverId === m.id) return;
+      collapseExpanded();
+      hoverId = m.id;
+
+      const dtClr = DERIVATION_COLORS[m.derivation_type] || DERIVATION_COLORS.default;
+      const kids = lookupChildren.get(m.id) || [];
+      const parent = m.parent_lemma_id ? lookupById.get(m.parent_lemma_id) : null;
+
+      // Trace the hovered word's lineage by lighting its own edges rather
+      // than dimming everything else — the surrounding tree stays readable,
+      // and there is no global state to get stuck.
+      const isMine = (d) => d && (d.childId === m.id || d.parentId === m.id);
+      g.selectAll(".edge").interrupt()
+        .attr("stroke", function () { return isMine(d3.select(this).datum()) ? T.gold : T.border; })
+        .attr("stroke-width", function () {
+          const d = d3.select(this).datum();
+          return isMine(d) ? 2.2 : (d?.baseW ?? 1);
+        })
+        .attr("opacity", function () {
+          const d = d3.select(this).datum();
+          return isMine(d) ? 0.95 : (d?.baseO ?? 0.5);
+        });
+
+      const sel = d3.select(nodeEl);
+      const rect = sel.select("rect.n-card");
+      if (rect.empty()) return;              // collapsed dot: nothing to unfold
+
+      const baseH = +rect.attr("data-h") || NODE_H;
+      const halfW = (+rect.attr("width") || NODE_W) / 2;
+
+      // Build the extra rows, sized in the card's own coordinates
+      const rows = [];
+      const rowMaxW = halfW * 2 - 14;
+      wrapToWidth(svgNode, m.short_def, rowMaxW, 8.5, 400, "italic", 3)
+        .forEach(l => rows.push([l, T.text, 8.5, true]));
+      if (parent) {
+        const rel = m.relation && m.relation !== "root" ? ` · ${m.relation}` : "";
+        rows.push([`from ${parent.lemma}${rel}`, T.dim, 7.5, false]);
+      }
+      const meta = [];
+      if (m.total_occurrences != null) meta.push(`×${m.total_occurrences.toLocaleString()}`);
+      if (kids.length) meta.push(`${kids.length} derivative${kids.length > 1 ? "s" : ""}`);
+      if (meta.length) rows.push([meta.join("   ·   "), T.goldDim, 7.5, false]);
+      if (m.derivation_type) {
+        rows.push([DERIVATION_LABELS[m.derivation_type] || m.derivation_type, dtClr, 7.5, false]);
+      }
+      if (!rows.length) return;
+
+      // The truncated one-liner is replaced by the full wrapped definition
+      sel.classed("is-expanded", true);
+      // selectAll, not select: the definition wraps to more than one line now,
+      // and a leftover second line renders straight through the expanded rows.
+      sel.selectAll(".n-def").style("display", "none");
+      // The card is about to be scaled up on screen, so the lemma does not need
+      // applyLOD's enlargement here — lay the heading out at its resting size.
+      // Positioning the rows below off .n-pos's y broke as soon as that y
+      // started moving with the zoom (and vanished when the LOD hid the line).
+      sel.selectAll(".n-pos").style("display", null);
+
+      const detail = sel.append("g").attr("class", "n-detail").attr("opacity", 0);
+      // Start just under the part-of-speech line rather than at the card's
+      // old bottom edge, which left a dead band under the heading.
+      const heading = layoutCardText(nodeEl, +sel.select(".n-lemma").attr("data-base") || 15);
+      let dy = (heading ? heading.bottom : baseH / 2) + 2;
+      rows.forEach(([text, fill, size, italic]) => {
+        dy += size + 2.5;
+        detail.append("text").attr("x", 0).attr("y", dy).attr("text-anchor", "middle")
+          .attr("fill", fill).attr("font-size", `${size}px`)
+          .attr("font-style", italic ? "italic" : null)
+          .attr("font-family", T.font)
+          .text(ellipsizeToWidth(svgNode, text, rowMaxW, size, 400, italic ? "italic" : "normal"));
+      });
+      const newH = baseH + (dy - baseH / 2) + 7;
+
+      // Size the card immediately rather than animating it: if the height
+      // transition is interrupted or throttled, an animated one leaves the
+      // last rows clipped outside the card. Only the lift is animated.
+      rect.interrupt().attr("height", newH);
+      detail.transition().delay(50).duration(120).attr("opacity", 1);
+
+      // Grow to a constant readable size on screen, whatever the zoom is
+      const k = d3.zoomTransform(svg.node()).k || 1;
+      // Reach a constant ~178px on screen: big enough to read from any zoom,
+      // small enough that it only ever covers its immediate neighbours.
+      const S = Math.max(1.18, Math.min(178 / (NODE_W * k), 2.9));
+      nodeEl.parentNode.appendChild(nodeEl);          // lift above neighbours
+      sel.interrupt().transition().duration(150)
+        .attr("transform", `translate(${x},${y}) scale(${S})`);
+
+      expanded = { el: nodeEl, x, y, rect, baseH, halfW };
+    };
+
+    // Safety net: whatever happens to individual node handlers, leaving the
+    // canvas always returns the tree to its resting state. (Note: do NOT
+    // clear on mousedown — that fires before click and would swallow clicks
+    // on anything the expanded card is showing.)
+    svg.on("mouseleave.hover", clearHover);
+    hoverCleanupRef.current = () => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      if (clickTimer) clearTimeout(clickTimer);
+      svg.on("mouseleave.hover", null);
+    };
+
     // ── Draw a node at given position and scale ──
+    /* Lay out a card's text as a stack centred in the card.
+       applyLOD re-sizes the lemma on every zoom, so these positions have to be
+       derived from the current sizes: pinning them to constants is what let an
+       enlarged lemma run its descenders into the part-of-speech line, and left
+       dead space below when the card grew for a second definition line.
+       Rows already hidden (by the LOD thresholds or the expanded card) give up
+       their space rather than reserving it. */
+    // Greek diacritics (ό, ί, ῖ) push a line's real box to about 1.30x its font
+    // size, well past a typical 1.15 line height — assuming the smaller figure
+    // is what let accented lemmas poke out of the top of their card.
+    const LINE_H = 1.30, ASCENT = 0.98;
+    const layoutCardText = (nodeEl, desiredLemmaSize) => {
+      const sel = d3.select(nodeEl);
+      const lemma = sel.select("text.n-lemma");
+      if (lemma.empty()) return 0;               // collapsed dot: no stack
+      const rect = sel.select("rect.n-card");
+      const cardH = +rect.attr("data-h") || NODE_H;   // resting height, not the expanded one
+      const shown = cls => sel.selectAll(cls).filter(function () { return this.style.display !== "none"; });
+      const nodeScale = (sel.datum() || {}).scale || 1;
+      const secondary = 11 * nodeScale, gap = 2.5 * nodeScale;
+      const others = [];
+      shown("text.n-pos").each(function () { others.push(d3.select(this)); });
+      shown("text.n-def").each(function () { others.push(d3.select(this)); });
+      // Whatever room the other rows need, the lemma gets the rest — applyLOD
+      // asks for a size that keeps it readable on screen, and the card's own
+      // height is the limit on granting it.
+      const lh = r => +r.attr("data-lh") || LINE_H;
+      const asc = r => +r.attr("data-asc") || ASCENT;
+      const othersH = others.reduce((t, r) => t + secondary * lh(r) + gap, 0);
+      // 0.97 absorbs the drift between metrics measured on the 100px probe and
+      // a glyph actually rendered at, say, 57px — without it an enlarged root
+      // lemma cleared the card edge by a pixel or two at extreme zoom-out.
+      const maxLemma = Math.max(6, (cardH * 0.97 - othersH) / lh(lemma));
+      const size = Math.min(desiredLemmaSize, maxLemma);
+      lemma.attr("font-size", `${size}px`);
+      const total = size * lh(lemma) + othersH;
+      let cur = -total / 2;
+      const place = (r, sz) => { r.attr("y", cur + sz * asc(r)); cur += sz * lh(r) + gap; };
+      place(lemma, size);
+      others.forEach(r => place(r, secondary));
+      // The last row's box ends exactly at total/2 — each gap precedes its row.
+      return { size, bottom: total / 2 };
+    };
+
     const drawNode = (parent, x, y, m, isRoot, scale, fId) => {
       if (scale <= 0) return; // hidden
       if (!fId) fId = family.id;
 
       const ng = parent.append("g")
+        .attr("class", "tree-node")
         .attr("transform", `translate(${x},${y})`)
         .style("cursor", "pointer");
 
       drawnNodes.push({ ng, m, x, y, scale, fId });
+      ng.datum({ m, x, y, scale, fId, isRoot });
 
       const clr = POS_CLR[m.pos] || T.dim;
       const isSel = m.id === selectedWord?.id;
       const isDetail = m.id === detailWord?.id;
 
-      const baseW = isRoot ? 155 : nW;
-      const baseH = isRoot ? 62 : nH;
+      const baseW = isRoot ? Math.max(155, nW) : nW;
+      const baseH = isRoot ? nH + 8 : nH;
       const w = baseW * scale;
       const h = baseH * scale;
 
@@ -801,8 +1417,36 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
             .attr("fill", T.dim).attr("font-size", `${Math.max(7 * scale / 0.3, 5)}px`)
             .attr("font-family", T.font).attr("opacity", 0.6).text(m.lemma);
         }
-        ng.on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
-          .on("dblclick", (event) => { event.stopPropagation(); if (onDoubleClickMember) onDoubleClickMember(m); })
+        // Dots carry no readable label, so hover is the only way to read
+        // them — give them a generous invisible hit area.
+        ng.append("circle").attr("r", Math.max(dotR + 9, 13)).attr("fill", "transparent");
+        ng.on("mouseenter", function () {
+          d3.select(this).select("circle").transition().duration(90)
+            .attr("r", dotR * 1.8).attr("opacity", 0.95);
+          showHoverCard(this, m, x, y);
+        }).on("mouseleave", function () {
+          d3.select(this).select("circle").transition().duration(120)
+            .attr("r", dotR).attr("opacity", 0.5);
+          scheduleHoverHide();
+        })
+          .on("click", (event) => {
+            event.stopPropagation();
+            if (clickTimer) clearTimeout(clickTimer);
+            clickTimer = setTimeout(() => { clickTimer = null; onSelectMember(m); }, 220);
+          })
+          .on("dblclick", (event) => {
+            event.stopPropagation();
+            if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+            clearHover();
+            centerMemberIdRef.current = m.id;
+            if (centerTimerRef.current) clearTimeout(centerTimerRef.current);
+            centerTimerRef.current = setTimeout(() => { centerMemberIdRef.current = null; }, 900);
+            // Don't animate toward where the word is *now*: focusing its branch
+            // is about to move it. The redraw recentres on its real position,
+            // one frame later, so the view makes a single uninterrupted move.
+            if (onDoubleClickMember) onDoubleClickMember(m);
+            else centerOn(x, y);
+          })
           .on("contextmenu", (event) => {
             event.preventDefault(); event.stopPropagation();
             if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
@@ -822,8 +1466,10 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
           .attr("fill", T.blue).attr("opacity", .1);
       }
 
-      ng.append("rect").attr("x", -w / 2).attr("y", -h / 2)
+      ng.append("rect").attr("class", "n-card")
+        .attr("x", -w / 2).attr("y", -h / 2)
         .attr("width", w).attr("height", h).attr("rx", 8 * scale)
+        .attr("data-h", h)              // resting height, restored on collapse
         .attr("fill", isRoot ? T.raised : T.surface)
         .attr("stroke", isSel ? T.gold : (isRoot ? T.gold : clr))
         .attr("stroke-width", isSel ? 2 : (isRoot ? 1.5 : .8))
@@ -845,25 +1491,63 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
           .attr("letter-spacing", "1.5px").text("ROOT");
       }
 
+      // Text layers carry their base size so the zoom handler can
+      // counter-scale them (see applyLOD) instead of letting auto-fit
+      // shrink them into illegibility.
       const fontSize = (isRoot ? 18 : 15) * scale;
-      ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? -10 : -12) * scale)
+      const lemmaWeight = (isRoot || isSel) ? 700 : 500;
+      // The card was already widened to fit this family's longest lemma, so
+      // this normally fits outright. Only a lemma past MAX_NODE_W shrinks, and
+      // only then elides — dropping characters off a lemma is the last resort.
+      const lemmaMaxW = w - 22 * scale;
+      let lemmaText = m.lemma || "";
+      let lemmaUnit = textUnitWidth(svgNode, lemmaText, lemmaWeight, "normal");
+      let lemmaSize = fontSize;
+      if (lemmaUnit * lemmaSize > lemmaMaxW) {
+        const floor = fontSize * LEMMA_MIN_RATIO;
+        if (lemmaUnit * floor <= lemmaMaxW) {
+          lemmaSize = lemmaMaxW / lemmaUnit;
+        } else {
+          lemmaSize = floor;
+          lemmaText = ellipsizeToWidth(svgNode, lemmaText, lemmaMaxW, floor, lemmaWeight, "normal");
+          lemmaUnit = textUnitWidth(svgNode, lemmaText, lemmaWeight, "normal");
+        }
+      }
+      ng.append("text").attr("class", "n-lemma").attr("text-anchor", "middle")
+        .attr("y", (isRoot ? -10 : -12) * scale)
+        .attr("data-base", lemmaSize).attr("data-dy", (isRoot ? -10 : -12) * scale)
+        // applyLOD re-sizes this label, so hand it what it needs to stop at the card edge
+        .attr("data-unitw", lemmaUnit).attr("data-maxw", lemmaMaxW)
         .attr("fill", isSel ? T.gold : T.bright)
-        .attr("font-size", `${fontSize}px`)
-        .attr("font-weight", (isRoot || isSel) ? 700 : 500)
-        .attr("font-family", T.font).text(m.lemma);
+        .attr("font-size", `${lemmaSize}px`)
+        .attr("font-weight", lemmaWeight)
+        .attr("font-family", T.font).text(lemmaText);
+      tagRowMetrics(svgNode, ng.select("text.n-lemma"), lemmaWeight, "normal");
 
-      ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 5 : 1) * scale)
+      ng.append("text").attr("class", "n-pos").attr("text-anchor", "middle")
+        .attr("y", (isRoot ? 5 : 1) * scale)
         .attr("fill", clr).attr("font-size", `${11 * scale}px`).attr("font-weight", 600)
-        .attr("font-family", T.font).text(m.pos || "");
+        .attr("font-family", T.font)
+        .text(ellipsizeToWidth(svgNode, m.pos || "", w - 14 * scale, 11 * scale, 600, "normal"));
+      tagRowMetrics(svgNode, ng.select("text.n-pos"), 600, "normal");
 
       if (scale >= 0.5) {
-        const def = (m.short_def || "").replace(/,\s*$/, "");
-        const maxChars = isRoot ? 35 : 25;
-        const defText = def.length > maxChars ? def.slice(0, maxChars) + "…" : def;
-        ng.append("text").attr("text-anchor", "middle").attr("y", (isRoot ? 18 : 14) * scale)
-          .attr("fill", T.dim).attr("font-size", `${11 * scale}px`).attr("font-style", "italic")
-          .attr("font-family", T.font).text(defText);
+        // Wrap to the card's real width rather than a character count: 25 wide
+        // characters still ran past 132px. The card's height already carries
+        // the second line (see defLines).
+        const defSize = 11 * scale;
+        wrapToWidth(svgNode, m.short_def, w - 12 * scale, defSize, 400, "italic", defLines)
+          .forEach((ln, i) => {
+            ng.append("text").attr("class", "n-def").attr("text-anchor", "middle")
+              .attr("y", ((isRoot ? 18 : 14) + i * DEF_LINE_H) * scale)
+              .attr("fill", T.dim).attr("font-size", `${defSize}px`).attr("font-style", "italic")
+              .attr("font-family", T.font).text(ln)
+              .call(sel => tagRowMetrics(svgNode, sel, 400, "italic"));
+          });
       }
+
+      // Rows are all appended now, so give the card its resting stack.
+      layoutCardText(ng.node(), lemmaSize);
 
       // Child count badge for ring-1 nodes with children (when collapsed)
       const kidCount = (childrenOf.get(m.id) || []).length;
@@ -922,16 +1606,41 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       }
 
       ng.on("mouseenter", function () {
-        d3.select(this).select("rect").transition().duration(80)
+        // A card whose label the declutter pass dropped is dimmed — bring it
+        // fully back while it is the one being read.
+        this.setAttribute("opacity", 1);
+        d3.select(this).select("rect.n-card").transition().duration(80)
           .attr("stroke", T.gold).attr("stroke-opacity", 1);
+        showHoverCard(this, m, x, y);
       }).on("mouseleave", function () {
         if (m.id !== selectedWord?.id) {
-          d3.select(this).select("rect").transition().duration(80)
+          d3.select(this).select("rect.n-card").transition().duration(80)
             .attr("stroke", isRoot ? T.gold : clr)
             .attr("stroke-opacity", isRoot ? .7 : .25);
         }
-      }).on("click", (event) => { event.stopPropagation(); onSelectMember(m); })
-        .on("dblclick", (event) => { event.stopPropagation(); if (onDoubleClickMember) onDoubleClickMember(m); })
+        scheduleHoverHide();
+      })
+        // Selecting redraws the tree, which would destroy this element before
+        // a second click could land — so hold the single-click briefly and
+        // drop it if a double-click follows.
+        .on("click", (event) => {
+          event.stopPropagation();
+          if (clickTimer) clearTimeout(clickTimer);
+          clickTimer = setTimeout(() => { clickTimer = null; onSelectMember(m); }, 220);
+        })
+        .on("dblclick", (event) => {
+          event.stopPropagation();
+          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+          clearHover();
+          // Hold the intent briefly so the redraws this triggers re-centre
+          // instead of auto-fitting back to the whole tree.
+          centerMemberIdRef.current = m.id;
+          if (centerTimerRef.current) clearTimeout(centerTimerRef.current);
+          centerTimerRef.current = setTimeout(() => { centerMemberIdRef.current = null; }, 900);
+          // See above: the redraw owns the motion.
+          if (onDoubleClickMember) onDoubleClickMember(m);
+          else centerOn(x, y);
+        })
         .on("contextmenu", (event) => {
           event.preventDefault(); event.stopPropagation();
           if (onNodeAction) onNodeAction(m, event.clientX, event.clientY);
@@ -940,17 +1649,31 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
 
     // ── Draw derivation type sector arcs ──
     if (ring1.length > 0) {
-      const sInnerR = ring1Radius - 60;
-      const sOuterR = ring1Radius + 60;
-      const sLabelR = ring1Radius + 82;
       const sectorLayer = g.append("g").attr("class", "sectors");
 
-      sectors.forEach(({ dt, startIdx, endIdx }) => {
+      // Half-way to the neighbouring slot, since slots are now variable width
+      const edgeAngle = (idx, dir) => {
+        const a = ring1Angles.get(ring1[idx].id);
+        const nb = ring1[idx + dir];
+        if (!nb || ring1Bands.get(nb.id) !== ring1Bands.get(ring1[idx].id)) {
+          return a + dir * (Math.PI / Math.max(ring1.length, 1));
+        }
+        let na = ring1Angles.get(nb.id);
+        if (dir > 0 && na < a) na += 2 * Math.PI;
+        if (dir < 0 && na > a) na -= 2 * Math.PI;
+        return (a + na) / 2;
+      };
+
+      sectors.forEach(({ dt, band, startIdx, endIdx }) => {
         if (!dt) return;
         const color = DERIVATION_COLORS[dt] || DERIVATION_COLORS.default;
         const label = DERIVATION_LABELS[dt] || dt;
-        const startAngle = ring1Angles.get(ring1[startIdx].id) - slotAngle * 0.5;
-        const endAngle = ring1Angles.get(ring1[endIdx].id) + slotAngle * 0.5;
+        const bandR = ring1Radii.get(ring1[startIdx].id);
+        const sInnerR = bandR - nH * 0.85;
+        const sOuterR = bandR + nH * 0.85;
+        const sLabelR = bandR + nH * 0.85 + (band === bandCount - 1 ? 20 : 8);
+        const startAngle = edgeAngle(startIdx, -1);
+        const endAngle = edgeAngle(endIdx, +1);
         const span = endAngle - startAngle;
         const midAngle = (startAngle + endAngle) / 2;
         const largeArc = span > Math.PI ? 1 : 0;
@@ -992,10 +1715,16 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       if (scale <= 0) return;
       const pos = posMap.get(m.id);
       if (!pos) return;
-      const pid = (m.parent_lemma_id && memberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : root.id;
+      // Same resolution the layout used, so an edge always lands on the card
+      // its child was actually placed under — not on the root — when a
+      // filtered-out ancestor sits in between.
+      const pid = visibleParent(m);
       const parentPos = posMap.get(pid) || { x: 0, y: 0 };
 
-      g.append("line")
+      // baseW/baseO let the hover handler restore this edge's own styling
+      g.append("line").attr("class", "edge")
+        .datum({ childId: m.id, parentId: pid,
+                 baseW: scale >= 0.5 ? 1 : 0.5, baseO: scale >= 0.5 ? .5 : .25 })
         .attr("x1", parentPos.x).attr("y1", parentPos.y)
         .attr("x2", pos.x).attr("y2", pos.y)
         .attr("stroke", T.border).attr("stroke-width", scale >= 0.5 ? 1 : 0.5)
@@ -1097,8 +1826,13 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
           lChildrenOf.get(pid).push(m);
         });
 
+        // Make this family's members resolvable by the hover card
+        lMemberById.forEach((v, kk) => { if (!lookupById.has(kk)) lookupById.set(kk, v); });
+        lChildrenOf.forEach((v, kk) => { if (!lookupChildren.has(kk)) lookupChildren.set(kk, v); });
+
         const lRing1 = lChildrenOf.get(lRoot.id) || [];
-        const lRing1Radius = Math.max(lRing1.length * (nW * 0.3 + gap * 0.6) / (2 * Math.PI), 130);
+        const lRing = layoutRing(lRing1.length, nW * 0.8, nH * 0.8, 120);
+        const lRing1Radius = lRing.R;
 
         const linkedR = lRing1Radius + nW + 60;
         const separation = mainMaxR + linkedR + 100;
@@ -1111,7 +1845,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         lPosMap.set(lRoot.id, { x: offsetX, y: offsetY });
 
         lRing1.forEach((m, i) => {
-          const angle = (i / lRing1.length) * 2 * Math.PI - Math.PI / 2;
+          const angle = lRing.angles[i] ?? ((i / lRing1.length) * 2 * Math.PI - Math.PI / 2);
           lPosMap.set(m.id, { x: offsetX + Math.cos(angle) * lRing1Radius, y: offsetY + Math.sin(angle) * lRing1Radius });
         });
 
@@ -1173,7 +1907,8 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
           const pid = (m.parent_lemma_id && lMemberById.has(m.parent_lemma_id)) ? m.parent_lemma_id : lRoot.id;
           const parentPos = lPosMap.get(pid) || { x: offsetX, y: offsetY };
 
-          g.append("line")
+          g.append("line").attr("class", "edge")
+            .datum({ childId: m.id, parentId: pid, baseW: 0.8, baseO: 0.35 })
             .attr("x1", parentPos.x).attr("y1", parentPos.y)
             .attr("x2", pos.x).attr("y2", pos.y)
             .attr("stroke", T.border).attr("stroke-width", 0.8)
@@ -1253,8 +1988,99 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       });
     }
 
-    // Auto-fit
-    if (zoomRef.current) {
+    /* ── Level of detail + label counter-scaling ──────────────────
+       Font sizes are in world units, so a fit-to-view transform of k
+       renders a 15px label at 15·k px. Below k≈0.8 that becomes
+       unreadable, which was the core complaint. Here each label is
+       re-sized to base/k — constant on screen — capped so it still
+       fits inside its card, and secondary lines drop away as the card
+       shrinks rather than overlapping. */
+    let lodK = null;                 // zoom level the last LOD pass ran for
+    const applyLOD = (k, force) => {
+      const kk = k || 1;
+      // Every label's size, visibility and decluttering depends only on k, so a
+      // movement that holds the zoom — panning, and the centring transition
+      // itself — needs none of this work. Running the full pass (an O(n^2)
+      // declutter plus a relayout per card) on those frames is what made the
+      // motion judder.
+      if (!force && lodK !== null && Math.abs(kk - lodK) < 1e-4) return;
+      lodK = kk;
+      const cardScreenW = nW * kk;
+      const showDef = cardScreenW > 104;
+      const showPos = cardScreenW > 72;
+
+      // The expanded card shows the full wrapped definition instead, so leave
+      // its own truncated one-liner hidden.
+      g.selectAll(".tree-node:not(.is-expanded) .n-def")
+        .style("display", showDef ? null : "none");
+      g.selectAll(".n-pos").style("display", showPos ? null : "none");
+
+      // Collect labels with the screen box each would occupy at readable size
+      const items = [];
+      g.selectAll(".tree-node").each(function () {
+        const d = d3.select(this).datum();
+        const t = d3.select(this).select(".n-lemma");
+        if (!d || !d.m || t.empty()) return;
+        const base = +t.attr("data-base") || 15;
+        const unitw = +t.attr("data-unitw") || 0;
+        const maxw = +t.attr("data-maxw") || 0;
+        let screenPx = Math.max(base * kk, MIN_LABEL_PX);     // never below the floor
+        // ...and never past the card edge either. Counter-scaling a label to
+        // hold the floor is exactly what pushed long lemmas outside their card,
+        // since the enlargement is biggest when zoomed furthest out.
+        if (unitw > 0 && maxw > 0) screenPx = Math.min(screenPx, (maxw / unitw) * kk);
+        const chars = Math.max((t.text() || "").length, 1);
+        items.push({
+          t, d, base, screenPx, node: this,
+          w: unitw > 0 ? unitw * screenPx : chars * 0.55 * screenPx,
+          h: screenPx * 1.35,
+          cx: d.x * kk, cy: d.y * kk,
+          rank: d.isRoot ? Infinity : (d.m.total_occurrences || 0),
+        });
+      });
+
+      // Zooming out cannot keep every label readable — so keep the labels
+      // that matter most and drop the ones that would collide, rather than
+      // shrinking all of them into illegibility. Most-attested words win.
+      items.sort((a, b) => b.rank - a.rank);
+      const placed = [];
+      for (const it of items) {
+        const hit = placed.some(p =>
+          Math.abs(p.cx - it.cx) < (p.w + it.w) / 2 + 3 &&
+          Math.abs(p.cy - it.cy) < (p.h + it.h) / 2 + 2);
+        if (hit) {
+          // An unlabelled card would read as an empty box, so let it recede
+          // into texture; it still responds to hover for its full detail.
+          it.t.style("display", "none");
+          it.node.setAttribute("opacity", 0.42);
+          continue;
+        }
+        placed.push(it);
+        it.node.setAttribute("opacity", 1);
+        it.t.style("display", null);
+        // Ask for the size that reads constant on screen; layoutCardText grants
+        // what the card can actually hold and re-centres the stack around it.
+        layoutCardText(it.node, it.screenPx / kk);
+      }
+    };
+    lodRef.current = applyLOD;
+
+    // Auto-fit — only when the layout itself changes. Re-fitting on every
+    // redraw threw away the reader's own pan/zoom each time they selected a
+    // word, which made a large tree impossible to work through.
+    const fitKey = [
+      family.id, members.length, focusId ?? "-",
+      (linkedFamilies || []).map(l => l.id).join(","),
+      showExplicitLinked, [...expandedCrossIds].sort().join(","),
+      Math.round(width), Math.round(height),
+    ].join("|");
+    // A pending recentre is an explicit navigation request, so it outranks
+    // auto-fit: double-clicking a word must not be undone by a refit.
+    const pendingCenter = centerMemberIdRef.current;
+    const shouldFit = fittedKeyRef.current !== fitKey && pendingCenter == null;
+    fittedKeyRef.current = fitKey;
+
+    if (zoomRef.current && shouldFit) {
       let maxR = ring1Radius + nW / 2 + 30;
       if (focusId) {
         posMap.forEach((pos) => {
@@ -1278,8 +2104,21 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
       const t = d3.zoomIdentity.translate(width / 2 - cx * fitScale, height / 2 - cy * fitScale).scale(fitScale);
       svg.call(zoomRef.current.transform, t);
     }
+    // Re-centre on the double-clicked word at its position in THIS layout —
+    // focusing a branch moves it, so the pre-redraw centring is only a head
+    // start. The intent is held for a beat (not consumed on the first redraw)
+    // because opening the details panel resizes this one, and that second
+    // redraw would otherwise auto-fit the centring away.
+    if (pendingCenter != null) {
+      const p = posMap.get(pendingCenter);
+      if (p) centerOn(p.x, p.y);
+    }
 
-  }, [family, selectedWord, detailWord, linkedFamilies, width, height, onSelectMember, onNodeAction, expandedCrossIds, showExplicitLinked]);
+    applyLOD(d3.zoomTransform(svg.node()).k);
+
+    return () => { if (hoverCleanupRef.current) hoverCleanupRef.current(); };
+
+  }, [family, selectedWord, detailWord, posFilter, linkedFamilies, width, height, onSelectMember, onNodeAction, expandedCrossIds, showExplicitLinked]);
 
   // Always render the SVG so zoom bindings persist.
   // Overlay the placeholder when there's no family.
@@ -3423,6 +4262,9 @@ export default function App() {
   const [nodeAction, setNodeAction] = useState(null); // { member, x, y }
   const [familyScope, setFamilyScope] = useState("all"); // "all" | "work"
   const [vizMode, setVizMode] = useState("tree"); // "tree" | "sunburst" | "list"
+  // Kept separate from the word list's posFilter: narrowing the vocabulary
+  // list on the left shouldn't silently reshape the family tree.
+  const [vizPosFilter, setVizPosFilter] = useState(new Set());
   const [vocabLimit, setVocabLimit] = useState(500);
   const [headerSearch, setHeaderSearch] = useState("");
   const [headerResults, setHeaderResults] = useState([]);
@@ -3613,6 +4455,11 @@ export default function App() {
   const togglePos = useCallback(pos => {
     setPosFilter(prev => { const n = new Set(prev); n.has(pos) ? n.delete(pos) : n.add(pos); return n; });
   }, []);
+
+  const toggleVizPos = useCallback(pos => {
+    setVizPosFilter(prev => { const n = new Set(prev); n.has(pos) ? n.delete(pos) : n.add(pos); return n; });
+  }, []);
+  const clearVizPos = useCallback(() => setVizPosFilter(new Set()), []);
 
   const toggleAuthor = useCallback(a => {
     setSelectedAuthors(prev => { const n = new Set(prev); n.has(a) ? n.delete(a) : n.add(a); return n; });
@@ -3948,6 +4795,10 @@ export default function App() {
                     className={m === vizMode ? 'glossalearn-button-selected glossalearn-button' : 'glossalearn-button'}
                   >{m === "tree" ? "Tree" : m === "sunburst" ? "Sunburst" : "List"}</button>
                 ))}</div>
+              {vizMode === "tree" && family && (
+                <VizPosFilter members={family.members} filter={vizPosFilter}
+                  onToggle={toggleVizPos} onClear={clearVizPos} />
+              )}
 
             </div>
 
@@ -3971,6 +4822,7 @@ export default function App() {
                   onDoubleClickMember={m => { setSelectedWord(m); setDetailWord(m); setRightPinned(true); }}
                   onNodeAction={superuser ? (m, x, y) => setNodeAction({ member: m, x, y }) : undefined}
                   onReparent={superuser ? handleReparent : undefined}
+                  posFilter={vizPosFilter}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
                   width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
               )}
