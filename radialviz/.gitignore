@@ -33,3 +33,6 @@ datasets-backup
 family_audit/*.jsonl
 family_audit/*.json
 .serve_venv/
+
+# Dev server logs (churn, not source)
+family_audit/*.log
