@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll origin/main and redeploy the GlossaLearn API
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/glossalearn
+ExecStart=/home/ec2-user/deploy.sh
+TimeoutStartSec=300
