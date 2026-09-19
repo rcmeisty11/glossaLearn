@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub every 5 minutes for GlossaLearn API updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=glossalearn-deploy.service
+
+[Install]
+WantedBy=timers.target
