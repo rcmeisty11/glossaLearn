@@ -422,7 +422,7 @@ def get_lemma(lemma_id):
     family = None
     all_families = []
     fam_rows = db.execute(
-        """SELECT df.id, df.root, df.label, lf.relation
+        """SELECT df.id, df.root, df.label, df.kind, df.gloss, lf.relation
            FROM lemma_families lf
            JOIN derivational_families df ON df.id = lf.family_id
            WHERE lf.lemma_id = ?""",
@@ -431,25 +431,65 @@ def get_lemma(lemma_id):
 
     for fam_row in fam_rows:
         fam_dict = row_to_dict(fam_row)
-        members = rows_to_list(db.execute(
-            """SELECT l.id, l.lemma, l.pos, l.short_def,
-                      l.total_occurrences, lf.relation, lf.parent_lemma_id
-               FROM lemma_families lf
-               JOIN lemmas l ON l.id = lf.lemma_id
-               WHERE lf.family_id = ?
-               ORDER BY l.total_occurrences DESC""",
-            (fam_dict["id"],),
-        ).fetchall())
         fam_obj = {
             "id": fam_dict["id"],
             "root": fam_dict["root"],
             "label": fam_dict["label"],
             "relation": fam_dict["relation"],
-            "members": members,
+            "kind": fam_dict["kind"],
+            "gloss": fam_dict["gloss"],
         }
+
+        # Preposition/preverb families are huge by nature — ἐπί alone holds 821
+        # members — and listing them tells the reader nothing about the word in
+        # hand. Send the count and the gloss instead of the membership, so the
+        # client can show a compact card: which preverb this lemma carries and
+        # what it means. The full list stays available at /api/family/<id>.
+        if fam_dict["kind"] in ("preposition", "suffix"):
+            fam_obj["member_count"] = db.execute(
+                "SELECT COUNT(*) FROM lemma_families WHERE family_id = ?",
+                (fam_dict["id"],),
+            ).fetchone()[0]
+            fam_obj["members"] = []
+            fam_obj["members_omitted"] = True
+        else:
+            members = rows_to_list(db.execute(
+                """SELECT l.id, l.lemma, l.pos, l.short_def,
+                          l.total_occurrences, lf.relation, lf.parent_lemma_id
+                   FROM lemma_families lf
+                   JOIN lemmas l ON l.id = lf.lemma_id
+                   WHERE lf.family_id = ?
+                   ORDER BY l.total_occurrences DESC""",
+                (fam_dict["id"],),
+            ).fetchall())
+            fam_obj["members"] = members
+            fam_obj["member_count"] = len(members)
+            fam_obj["members_omitted"] = False
+
         all_families.append(fam_obj)
+
+    # The primary family drives the tree view, so prefer a real derivational
+    # family — an affix family in that slot would render as an empty tree,
+    # because its membership is deliberately omitted.
+    #
+    # Some lemmas have nothing else: a preposition heads its own family, and a
+    # handful of verbs sit only under an affix. Rather than show them a blank
+    # canvas, fall back to the smallest affix family and load its members after
+    # all, so there is always something to draw.
     if all_families:
-        family = all_families[0]
+        family = next((f for f in all_families if not f["members_omitted"]), None)
+        if family is None:
+            family = min(all_families, key=lambda f: f.get("member_count") or 0)
+            family["members"] = rows_to_list(db.execute(
+                """SELECT l.id, l.lemma, l.pos, l.short_def,
+                          l.total_occurrences, lf.relation, lf.parent_lemma_id
+                   FROM lemma_families lf
+                   JOIN lemmas l ON l.id = lf.lemma_id
+                   WHERE lf.family_id = ?
+                   ORDER BY l.total_occurrences DESC""",
+                (family["id"],),
+            ).fetchall())
+            family["members_omitted"] = False
 
     # Top works this lemma appears in
     top_works = rows_to_list(db.execute(
@@ -488,6 +528,34 @@ def get_lemma(lemma_id):
 # Query params:
 #   pos=noun       optional POS filter
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# GET /api/lemma/<id>/prefixes
+# Just the preposition/preverb families a lemma carries.
+#
+# The UI shows these as chips next to whichever word is in focus, which changes
+# on every click in the tree. Refetching the whole lemma payload for that would
+# ship its entire family membership each time, so this returns only what the
+# chips need: the preverb, its gloss, and how many words share it.
+# ─────────────────────────────────────────────
+@app.route("/api/lemma/<int:lemma_id>/prefixes")
+def get_lemma_prefixes(lemma_id):
+    db = get_db()
+    rows = rows_to_list(db.execute(
+        """SELECT df.id, df.root, df.label, df.gloss, df.kind, lf.relation,
+                  (SELECT COUNT(*) FROM lemma_families x WHERE x.family_id = df.id)
+                      AS member_count
+           FROM lemma_families lf
+           JOIN derivational_families df ON df.id = lf.family_id
+           WHERE lf.lemma_id = ? AND df.kind IN ('preposition','suffix')
+           ORDER BY df.kind DESC, df.root""",
+        (lemma_id,),
+    ).fetchall())
+    for r in rows:
+        r["members"] = []
+        r["members_omitted"] = True
+    return jsonify({"lemma_id": lemma_id, "prefixes": rows})
+
+
 @app.route("/api/lemma/by-name/<lemma_text>")
 def get_lemma_by_name(lemma_text):
     db = get_db()
@@ -629,12 +697,23 @@ def get_family(family_id):
     db = get_db()
 
     family = row_to_dict(db.execute(
-        "SELECT id, root, label FROM derivational_families WHERE id = ?",
+        "SELECT id, root, label, kind, gloss FROM derivational_families WHERE id = ?",
         (family_id,),
     ).fetchone())
 
     if not family:
         return jsonify({"error": "Family not found"}), 404
+
+    # A preposition family is a card, not a list. Its membership is only sent
+    # when a caller explicitly asks (?members=1), e.g. a deliberate "show me
+    # every ἐπί- compound" browse.
+    if family["kind"] in ("preposition", "suffix") and request.args.get("members") != "1":
+        family["member_count"] = db.execute(
+            "SELECT COUNT(*) FROM lemma_families WHERE family_id = ?", (family_id,),
+        ).fetchone()[0]
+        family["members"] = []
+        family["members_omitted"] = True
+        return jsonify(family)
 
     members = rows_to_list(db.execute(
         """SELECT l.id, l.lemma, l.pos, l.short_def,
@@ -1643,11 +1722,21 @@ def get_linked_families(family_id):
 
     def fetch_family(fid):
         fam = db.execute(
-            "SELECT id, root, label FROM derivational_families WHERE id = ?", (fid,),
+            "SELECT id, root, label, kind, gloss FROM derivational_families WHERE id = ?",
+            (fid,),
         ).fetchone()
         if not fam:
             return None
         fam_dict = row_to_dict(fam)
+        # Same rule as the lemma endpoint: a preposition family is shown as a
+        # card, not a membership list, so don't pay to load 800 rows for it.
+        if fam_dict["kind"] in ("preposition", "suffix"):
+            fam_dict["member_count"] = db.execute(
+                "SELECT COUNT(*) FROM lemma_families WHERE family_id = ?", (fid,),
+            ).fetchone()[0]
+            fam_dict["members"] = []
+            fam_dict["members_omitted"] = True
+            return fam_dict
         fam_dict["members"] = rows_to_list(db.execute(
             """SELECT l.id, l.lemma, l.pos, l.short_def,
                       l.total_occurrences, lf.relation, lf.parent_lemma_id, lf.derivation_type
@@ -1657,6 +1746,8 @@ def get_linked_families(family_id):
                ORDER BY l.total_occurrences DESC""",
             (fid,),
         ).fetchall())
+        fam_dict["member_count"] = len(fam_dict["members"])
+        fam_dict["members_omitted"] = False
         return fam_dict
 
     # 1) Explicit family_links

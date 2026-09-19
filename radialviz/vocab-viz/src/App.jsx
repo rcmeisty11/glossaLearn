@@ -38,6 +38,13 @@ const POS_CLR = {
   particle: T.cyan, article: T.dim, "": T.dim,
 };
 
+/* Affix cards (prefix/suffix) are deliberately OFF the gold-and-blue palette
+   the tree uses for lemmas. They are not words in the family — they are the
+   morpheme the word carries — so they get their own magenta so the eye reads
+   them as a different kind of thing at a glance. */
+const AFFIX_CLR = "#e05fc4";
+const AFFIX_DIM = "#a8608f";
+
 const DERIVATION_ORDER = [
   'deverbal_action', 'deverbal_agent', 'deverbal_instrument',
   'verbal_adj_passive', 'verbal_adj_active',
@@ -845,7 +852,7 @@ function wrapLines(text, perLine, maxLines) {
    degrades cards to chips and counter-scales labels so they stay
    readable instead of collapsing to sub-pixel text.
    ═══════════════════════════════════════════════════ */
-function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, onReparent, posFilter, linkedFamilies, width, height }) {
+function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDoubleClickMember, onNodeAction, onReparent, posFilter, linkedFamilies, prefixFamilies, width, height }) {
   const svgRef = useRef(null);
   const zoomRef = useRef(null);
   const lodRef = useRef(null);          // set by the draw effect; called on every zoom
@@ -1764,6 +1771,137 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
     // Draw root last (on top)
     drawNode(g, 0, 0, root, true, getNodeScale(root));
 
+    // ── Prefix cards: the preverb a word carries, tethered to that word ──
+    //
+    // A preposition family is never drawn as a branch — ἐπί- alone holds 821
+    // members and would swamp the tree. Instead the preverb appears as a small
+    // card beside the word that carries it, joined by a dashed tether, so the
+    // reader sees "this word contains σύν-, which means 'with, together'"
+    // without the other 745 σύν- words coming along.
+    const prefixOffsets = []; // fed into the auto-fit so cards are never clipped
+    if (prefixFamilies && prefixFamilies.length > 0) {
+      const anchorId = (detailWord && memberById.has(detailWord.id)) ? detailWord.id
+        : (selectedWord && memberById.has(selectedWord.id)) ? selectedWord.id
+          : root.id;
+      const anchor = posMap.get(anchorId);
+      if (anchor) {
+        // Place each card in the emptiest spot near its word.
+        //
+        // The ring is dense, so a fixed angle lands the card on a sibling node.
+        // Treat every drawn node AND every card already placed as a real
+        // rectangle, then sweep angles and distances around the anchor and keep
+        // the candidate with the largest clear margin. Scoring on rectangle
+        // overlap rather than centre distance matters because nodes are wide
+        // and short — a point-distance test reads a card sitting on a node's
+        // right edge as "far away".
+        const PAD = 10;
+        const boxes = [];
+        posMap.forEach((p, id) => {
+          const m = memberById.get(id);
+          const s = m ? getNodeScale(m) : 1;
+          if (s <= 0) return;                       // filtered-out nodes don't block
+          boxes.push({ x: p.x, y: p.y, w: nW * s + PAD, h: nH * s + PAD });
+        });
+
+        // Signed clearance between two boxes: >0 means a gap, <0 means overlap.
+        const clearance = (a, b) => Math.max(
+          Math.abs(a.x - b.x) - (a.w + b.w) / 2,
+          Math.abs(a.y - b.y) - (a.h + b.h) / 2,
+        );
+
+        const away = Math.atan2(anchor.y, anchor.x);
+        const baseAngle = (anchor.x === 0 && anchor.y === 0) ? -Math.PI / 2 : away;
+
+        prefixFamilies.forEach((pf) => {
+          const cw = 132, ch = pf.gloss ? 52 : 34;
+          let best = null;
+          // Sweep outward from the anchor's own direction, alternating sides,
+          // and step further out only when nearer rings are all blocked.
+          for (const dist of [120, 145, 170, 200, 235, 275]) {
+            for (let a = 0; a < 36; a++) {
+              const ang = baseAngle + (a % 2 ? 1 : -1) * Math.ceil(a / 2) * (Math.PI / 18);
+              const cand = {
+                x: anchor.x + Math.cos(ang) * dist,
+                y: anchor.y + Math.sin(ang) * dist,
+                w: cw, h: ch,
+              };
+              let margin = Infinity;
+              for (const b of boxes) {
+                const c = clearance(cand, b);
+                if (c < margin) margin = c;
+                if (margin < -PAD) break;           // already badly overlapping
+              }
+              // Prefer a clear spot; among clear spots prefer the closest one.
+              const score = Math.min(margin, 40) - dist / 400;
+              if (!best || score > best.score) best = { ...cand, score, margin };
+            }
+            if (best && best.margin > 0) break;     // found clear air; stop widening
+          }
+          const cx = best.x, cy = best.y;
+          boxes.push({ x: cx, y: cy, w: cw + PAD, h: ch + PAD });  // later cards avoid it
+          prefixOffsets.push({ x: cx, y: cy, w: cw, h: ch });
+
+          // tether
+          g.append("line")
+            .attr("class", "prefix-tether")
+            .attr("x1", anchor.x).attr("y1", anchor.y)
+            .attr("x2", cx).attr("y2", cy)
+            .attr("stroke", AFFIX_CLR).attr("stroke-width", 1.8)
+            .attr("stroke-dasharray", "5,4").attr("opacity", 0.75);
+
+          const card = g.append("g")
+            .attr("class", "prefix-card")
+            .attr("transform", `translate(${cx},${cy})`)
+            .style("cursor", "pointer");
+
+          card.append("rect")
+            .attr("x", -cw / 2).attr("y", -ch / 2)
+            .attr("width", cw).attr("height", ch)
+            .attr("rx", 6)
+            .attr("fill", T.surface)
+            .attr("stroke", AFFIX_CLR).attr("stroke-width", 1.8)
+            .attr("opacity", 0.97);
+
+          // A prefix reads "σύν-", a suffix "-ίζω"; the stored root already
+          // carries the leading hyphen for suffixes, so don't double it.
+          const isSuffix = pf.kind === "suffix";
+          const label = isSuffix
+            ? (pf.root.startsWith("-") ? pf.root : `-${pf.root}`)
+            : `${pf.root}-`;
+
+          card.append("text")
+            .attr("text-anchor", "middle")
+            .attr("y", pf.gloss ? -ch / 2 + 16 : 4)
+            .attr("fill", AFFIX_CLR)
+            .attr("font-family", T.font)
+            .attr("font-size", "15px").attr("font-weight", 700)
+            .text(label);
+
+          card.append("text")
+            .attr("text-anchor", "middle")
+            .attr("y", pf.gloss ? -ch / 2 + 27 : 0)
+            .attr("fill", AFFIX_DIM)
+            .attr("font-family", T.mono)
+            .attr("font-size", "7px").attr("letter-spacing", "0.5px")
+            .text(isSuffix ? "SUFFIX" : "PREFIX");
+
+          if (pf.gloss) {
+            card.append("text")
+              .attr("text-anchor", "middle")
+              .attr("y", ch / 2 - 8)
+              .attr("fill", T.bright)
+              .attr("font-family", T.font)
+              .attr("font-size", "10px").attr("font-style", "italic")
+              .text(pf.gloss.length > 22 ? pf.gloss.slice(0, 21) + "…" : pf.gloss);
+          }
+
+          card.append("title")
+            .text(`${label} — ${pf.gloss || ""}`
+              + `\n${(pf.member_count || 0).toLocaleString()} words carry this prefix`);
+        });
+      }
+    }
+
     // ── Render linked families (only when badge is clicked) ──
     const linkedOffsets = []; // track bounding for auto-fit
     const activeLinked = (linkedFamilies || []).filter(lf => {
@@ -2096,6 +2234,12 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
         minY = Math.min(minY, pos.y - nH);
         maxY = Math.max(maxY, pos.y + nH);
       });
+      prefixOffsets.forEach(p => {
+        minX = Math.min(minX, p.x - p.w / 2 - 20);
+        maxX = Math.max(maxX, p.x + p.w / 2 + 20);
+        minY = Math.min(minY, p.y - p.h / 2 - 20);
+        maxY = Math.max(maxY, p.y + p.h / 2 + 20);
+      });
       const totalW = maxX - minX + 80;
       const totalH = maxY - minY + 80;
       const cx = (minX + maxX) / 2;
@@ -2118,7 +2262,7 @@ function FamilyTree({ family, selectedWord, detailWord, onSelectMember, onDouble
 
     return () => { if (hoverCleanupRef.current) hoverCleanupRef.current(); };
 
-  }, [family, selectedWord, detailWord, posFilter, linkedFamilies, width, height, onSelectMember, onNodeAction, expandedCrossIds, showExplicitLinked]);
+  }, [family, selectedWord, detailWord, posFilter, linkedFamilies, prefixFamilies, width, height, onSelectMember, onNodeAction, expandedCrossIds, showExplicitLinked]);
 
   // Always render the SVG so zoom bindings persist.
   // Overlay the placeholder when there's no family.
@@ -2248,8 +2392,43 @@ function FamilyListView({ family, selectedWord, detailWord, onSelectMember, onDo
   const activeMemberId = selectedLinkedId;
   const activeLinked = activeMemberId ? memberLinkedFamilies(activeMemberId) : (linkedFamilies || []);
 
+  // Preposition/preverb families are shown as a single card, never expanded.
+  // ἐπί- alone has 821 members; listing them buries the word being studied and
+  // says nothing about it. What matters is *which* preverb the lemma carries
+  // and what that preverb means. The API omits the membership entirely
+  // (members_omitted), so there is nothing to render even if we wanted to.
+  const renderPrepositionCard = (lf) => (
+    <div key={lf.id} style={{
+      marginBottom: 12, padding: "10px 12px",
+      border: `1px solid ${T.borderL}`, borderRadius: 6,
+      background: T.hover,
+    }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontFamily: T.font, fontSize: 22, fontWeight: 700, color: T.gold }}>
+          {lf.root}-
+        </span>
+        <span style={{
+          fontSize: 10, color: T.dim, padding: "1px 6px",
+          border: `1px solid ${T.borderL}`, borderRadius: 3, letterSpacing: 0.4,
+        }}>PREFIX</span>
+        {lf.member_count > 0 && (
+          <span style={{ fontSize: 11, color: T.dim, marginLeft: "auto" }}>
+            {lf.member_count.toLocaleString()} words share this prefix
+          </span>
+        )}
+      </div>
+      {lf.gloss && (
+        <div style={{ fontSize: 13, color: T.bright, marginTop: 5, fontStyle: "italic" }}>
+          {lf.gloss}
+        </div>
+      )}
+    </div>
+  );
+
   // Render a linked family as an indented list
   const renderLinkedFamily = (lf) => {
+    if (lf.kind === "preposition" || lf.members_omitted) return renderPrepositionCard(lf);
+    if (!lf.members || lf.members.length === 0) return null;
     const lMembers = [...lf.members];
     let lRootIdx = lMembers.findIndex(m => m.relation === "root" && m.total_occurrences === Math.max(...lMembers.filter(x => x.relation === "root").map(x => x.total_occurrences)));
     if (lRootIdx < 0) lRootIdx = 0;
@@ -4413,6 +4592,18 @@ export default function App() {
 
   const { data: lemmaDetail } = useApi(selectedWord ? `${API}/lemma/${selectedWord.id}?v=${familyVersion}` : null, loading);
   const familyAll = lemmaDetail?.family || null;
+  // Preposition/preverb families are surfaced as chips, not as tree branches.
+  // They follow the word actually in focus: clicking a node in the tree sets
+  // detailWord, while selectedWord only changes from the word list, so keying
+  // these off selectedWord would leave the chips showing the wrong word.
+  const focusWord = detailWord || selectedWord;
+  const { data: prefixData } = useApi(
+    focusWord ? `${API}/lemma/${focusWord.id}/prefixes?v=${familyVersion}` : null,
+    loading
+  );
+  // Memoised: this feeds a d3 effect's dependency array, and a fresh []
+  // on every render would re-run the whole tree draw in a loop.
+  const prefixFamilies = useMemo(() => prefixData?.prefixes || [], [prefixData]);
   const bumpFamily = useCallback(() => setFamilyVersion(v => v + 1), []);
 
 
@@ -4824,6 +5015,7 @@ export default function App() {
                   onReparent={superuser ? handleReparent : undefined}
                   posFilter={vizPosFilter}
                   linkedFamilies={linkedFamilies.length > 0 ? linkedFamilies : undefined}
+                  prefixFamilies={prefixFamilies}
                   width={centerDims.w} height={centerDims.h - (superuser && family ? 30 : 0)} />
               )}
             </div>
